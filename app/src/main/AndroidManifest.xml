@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Notification required to show the persistent foreground-service notification (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Foreground service base permission -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Required foreground-service *type* permission for capturing audio via MediaProjection (Android 10+,
+         mandatory service type declaration from Android 14/API 34 onward) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Draw the floating live-caption overlay above other apps -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Required by Android for BOTH modes: microphone mode, and system-audio (playback capture) mode. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- ONLY used for explicit, user-initiated speech-model downloads in Settings
+         (Vosk/Whisper model files). Never used to upload audio, transcripts, or any
+         lecture content — the app makes no other network calls. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".LectureCaptionApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LectureCaption">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.LectureCaption">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Transparent activity whose only job is to launch the MediaProjection consent dialog
+             and hand the resulting Intent back to the foreground service. Required because
+             createScreenCaptureIntent()/startActivityForResult must be called from an Activity. -->
+        <activity
+            android:name=".service.MediaProjectionRequestActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".service.TranscriptionForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+</manifest>
