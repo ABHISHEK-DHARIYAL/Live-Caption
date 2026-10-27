@@ -130,7 +130,7 @@ class OnlineRefiner(
             v.pop()
             val size = seg.samples.size
             if (size < sampleRate / 8) continue
-            if (WhisperRefiner.rms(seg.samples) < MIN_SEGMENT_RMS) continue // noise, not speech
+            if (!SpeechFilters.isSpeechLike(seg.samples)) continue // noise, not speech
             val done = batcher.add(seg.start * 1000L / sampleRate, seg.samples)
             if (done != null) enqueue(done)
         }
@@ -150,7 +150,11 @@ class OnlineRefiner(
         try {
             if (fatal) { lost = true; return }
             val raw = withContext(Dispatchers.IO) { transcribeWithRetry(batch.samples) }
-            val text = textProcessor(WhisperRefiner.cleanUp(raw, batch.endMs - batch.startMs)).trim()
+            // The model sometimes recites the spelling hints on noise or after the speech: drop that.
+            val prompt = DictionaryPrompt.build(hints)
+            val speech = if (DictionaryEchoFilter.matchesPrompt(raw, prompt)) ""
+            else DictionaryEchoFilter.stripTrailingEcho(raw, prompt, hints)
+            val text = textProcessor(SpeechFilters.cleanUp(speech, batch.endMs - batch.startMs)).trim()
             if (text.isNotEmpty()) synchronized(results) { results.add(RefinedSegment(batch.startMs, batch.endMs, text)) }
             consecutiveFailures.set(0)
         } catch (e: CancellationException) {
@@ -206,7 +210,7 @@ class OnlineRefiner(
         release()
         if (lost) return null
         val sorted = synchronized(results) { results.sortedBy { it.startMs } }
-        return if (sorted.isEmpty()) null else WhisperRefiner.mergeIntoParagraphs(sorted)
+        return if (sorted.isEmpty()) null else SpeechFilters.mergeIntoParagraphs(sorted)
     }
 
     override fun abort() {
@@ -228,7 +232,6 @@ class OnlineRefiner(
     companion object {
         private const val MAX_PARALLEL_REQUESTS = 2
         private const val MAX_ATTEMPTS = 3
-        private const val MIN_SEGMENT_RMS = 0.01f
         /** ~10 minutes of unsent audio (~38 MB). Beyond that we're clearly offline/blocked. */
         private const val MAX_PENDING_SAMPLES = 16_000L * 60 * 10
         private const val FINISH_TIMEOUT_MS = 10 * 60_000L

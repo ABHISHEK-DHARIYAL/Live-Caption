@@ -35,54 +35,6 @@ enum class AudioSource { SYSTEM_AUDIO, MICROPHONE, SYSTEM_AND_MICROPHONE }
 data class PcmChunk(val samples: ShortArray, val length: Int)
 
 /**
- * Lightweight automatic gain control. Quiet system audio (low device/app volume, a quiet
- * lecturer, a video mixed low) is a common, boring cause of "wrong words" from an ASR model —
- * the recognizer is working on a signal that's mostly noise floor. This tracks a slow envelope
- * of recent peak level and boosts quiet audio back toward a target level, gently, per-sample
- * ramped so consecutive chunks don't click. It does NOT fix a genuinely garbled/interrupted
- * stream, background music, or heavy accents — those are separate, real limits of a small
- * offline model.
- */
-private class AutoGainControl {
-    private val targetPeak = 0.55f
-    private var envelope = targetPeak // running estimate of recent SPEECH peak level (0..1); starts at unity gain
-    private var lastGain = 1f
-    private val maxGain = 4f
-    private val minGain = 0.8f       // never attenuate below this; avoid double-quieting an already OK signal
-    private val attack = 0.5f        // envelope reacts fast to a sudden loud sound
-    private val release = 0.03f      // envelope forgets slowly, so a brief pause doesn't spike the gain
-
-    // Anything quieter than this (about -36 dBFS peak) is silence / hiss / a pause, not speech.
-    // The old version kept lowering its level estimate during pauses, so the gain crept up to 6x and
-    // the NEXT pause or background noise was amplified into something the recognizer "hears" as
-    // words (invented words), and the first syllable after a pause was over-boosted and clipped.
-    private val noiseFloor = 0.015f
-
-    fun apply(samples: ShortArray, length: Int) {
-        var peak = 0f
-        for (i in 0 until length) {
-            val a = kotlin.math.abs(samples[i].toInt())
-            if (a > peak) peak = a.toFloat()
-        }
-        val peakNorm = peak / 32768f
-        if (peakNorm >= noiseFloor) {
-            envelope = if (peakNorm > envelope) envelope + attack * (peakNorm - envelope)
-            else envelope + release * (peakNorm - envelope)
-        }
-        // Below the noise floor the envelope is frozen at the last speech level, so the gain stays
-        // where it was instead of ramping up and boosting noise.
-
-        val desiredGain = (targetPeak / envelope.coerceAtLeast(0.01f)).coerceIn(minGain, maxGain)
-        for (i in 0 until length) {
-            val t = if (length > 1) i.toFloat() / (length - 1) else 1f
-            val g = lastGain + (desiredGain - lastGain) * t
-            samples[i] = (samples[i] * g).coerceIn(-32768f, 32767f).toInt().toShort()
-        }
-        lastGain = desiredGain
-    }
-}
-
-/**
  * Owns the MediaProjection + AudioRecord lifecycle. System Audio mode requires:
  *   - Android 10+ (API 29) for AudioPlaybackCaptureConfiguration itself.
  *   - A live MediaProjection obtained via MediaProjectionManager.createScreenCaptureIntent(),
@@ -120,7 +72,8 @@ class AudioCaptureManager(private val context: Context) {
     private var secondaryAudioRecord: AudioRecord? = null
     private var mixThread: Thread? = null
 
-    private val singleSourceAgc = AutoGainControl()
+    // Boost-only AGC (see AutoGain.kt): never amplifies silence or noise, max 4x.
+    private val singleSourceAgc = AutoGain()
 
     private val _chunks = MutableSharedFlow<PcmChunk>(
         extraBufferCapacity = 256, // ~25 s of headroom so a busy phone never drops audio
@@ -316,19 +269,19 @@ class AudioCaptureManager(private val context: Context) {
 
         val playbackQueue = java.util.concurrent.ArrayBlockingQueue<ShortArray>(8)
         val micQueue = java.util.concurrent.ArrayBlockingQueue<ShortArray>(8)
-        val playbackAgc = AutoGainControl()
-        val micAgc = AutoGainControl()
+        // One AGC on the AVERAGED signal: if the mic is idle the averaged system audio is half as loud,
+        // and this lifts it back without ever boosting silence or noise.
+        val mixAgc = AutoGain()
 
         fun readerThread(
             record: AudioRecord, queue: java.util.concurrent.ArrayBlockingQueue<ShortArray>,
-            label: String, agc: AutoGainControl
+            label: String
         ) =
             Thread({
                 val buffer = ShortArray(CHUNK_SAMPLES)
                 while (isCapturing) {
                     val read = record.read(buffer, 0, buffer.size)
                     if (read > 0) {
-                        agc.apply(buffer, read) // normalize THIS source's level before it's mixed
                         queue.offer(if (read == buffer.size) buffer.copyOf() else buffer.copyOf(read).copyOf(CHUNK_SAMPLES))
                     } else if (read < 0) {
                         _errors.tryEmit(AudioCaptureError.StreamInterrupted)
@@ -337,8 +290,8 @@ class AudioCaptureManager(private val context: Context) {
                 }
             }, "AudioCaptureThread-$label").apply { start() }
 
-        val playbackThread = readerThread(playback, playbackQueue, "playback", playbackAgc)
-        val micThread = readerThread(mic, micQueue, "mic", micAgc)
+        val playbackThread = readerThread(playback, playbackQueue, "playback")
+        val micThread = readerThread(mic, micQueue, "mic")
 
         mixThread = Thread({
             val mixed = ShortArray(CHUNK_SAMPLES)
@@ -350,6 +303,7 @@ class AudioCaptureManager(private val context: Context) {
                     val sum = (a[i] + b[i]) / 2 // average, as documented: a plain sum clips when both are loud and distorts the speech
                     mixed[i] = sum.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
                 }
+                mixAgc.apply(mixed, CHUNK_SAMPLES)
                 _chunks.tryEmit(PcmChunk(mixed.copyOf(), CHUNK_SAMPLES))
             }
             playbackThread.join(500)

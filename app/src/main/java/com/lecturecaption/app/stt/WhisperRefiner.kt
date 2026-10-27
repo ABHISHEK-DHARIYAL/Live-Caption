@@ -20,9 +20,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/** One cleaned-up piece of the lecture produced by Whisper. Times are ms from the start of audio. */
-class RefinedSegment(val startMs: Long, val endMs: Long, val text: String)
-
 /**
  * The "accurate" pass. Vosk keeps producing the instant live caption; in parallel this class listens
  * to the SAME audio, cuts it into speech segments with a voice-activity detector (Silero), and
@@ -168,7 +165,7 @@ class WhisperRefiner(
             if (size < sampleRate / 8) continue // under ~125 ms: not a word
             // The detector can fire on hiss, music or a click. Whisper then "transcribes" it into
             // made-up words, so segments that are simply too quiet to be speech are never decoded.
-            if (rms(seg.samples) < MIN_SEGMENT_RMS) continue
+            if (!SpeechFilters.isSpeechLike(seg.samples)) continue
             if (pendingSamples.get() + size > MAX_PENDING_SAMPLES) { lost = true; continue }
             pendingSamples.addAndGet(size.toLong())
             val startMs = seg.start * 1000L / sampleRate
@@ -233,69 +230,12 @@ class WhisperRefiner(
         /** ~8 minutes of audio waiting for the decoder (~31 MB). Beyond that Whisper can't keep up. */
         private const val MAX_PENDING_SAMPLES = 16_000L * 60 * 8
 
-        /** Below this RMS level (about -40 dBFS) a "speech" segment is really noise. */
-        private const val MIN_SEGMENT_RMS = 0.01f
+        // The guards live in SpeechFilters (pure Kotlin, unit-tested); these keep the old entry points.
+        internal fun rms(x: FloatArray): Float = SpeechFilters.rms(x)
 
-        internal fun rms(x: FloatArray): Float {
-            if (x.isEmpty()) return 0f
-            var sum = 0.0
-            for (v in x) sum += v * v
-            return kotlin.math.sqrt(sum / x.size).toFloat()
-        }
+        internal fun cleanUp(raw: String, durationMs: Long): String = SpeechFilters.cleanUp(raw, durationMs)
 
-        /** Whisper's stock "caption" lines it learned from subtitle files. Never real lecture speech. */
-        private val SUBTITLE_JUNK = Regex(
-            "(?i)(subtitles? (by|from) the amara\\.org community|amara\\.org|" +
-                "please subscribe to (my|our|the) channel|like and subscribe)\\.?"
-        )
-
-        /** Non-speech tags Whisper writes for music/noise, e.g. [MUSIC], (applause), [BLANK_AUDIO], and note symbols. */
-        private val NON_SPEECH_TAG = Regex(
-            "(?i)[\\[(]\\s*(blank[_ ]audio|music|upbeat music|soft music|applause|laughter|silence|noise|inaudible|no audio|sound)\\s*[\\])]|[♪♫]"
-        )
-
-        private val HALLUCINATIONS = setOf(
-            "you", "thank you", "thank you.", "thanks for watching", "thanks for watching!",
-            "thank you for watching", "thank you for watching.", "bye", "bye."
-        )
-
-        /** Whisper sometimes invents a phrase on noise, or loops one word. Remove both. */
-        internal fun cleanUp(raw: String, durationMs: Long): String {
-            var text = raw.trim()
-            if (text.isEmpty()) return ""
-            text = NON_SPEECH_TAG.replace(text, " ")
-            text = SUBTITLE_JUNK.replace(text, " ")
-            text = text.replace(Regex("\\s+"), " ").trim()
-            if (text.isEmpty()) return ""
-            if (durationMs < 3000 && text.lowercase() in HALLUCINATIONS) return ""
-            val words = text.split(Regex("\\s+"))
-            val out = ArrayList<String>(words.size)
-            var run = 0
-            for (w in words) {
-                if (out.isNotEmpty() && out.last().equals(w, ignoreCase = true)) {
-                    run++
-                    if (run >= 4) continue // keep at most 4 repeats in a row
-                } else run = 0
-                out.add(w)
-            }
-            return out.joinToString(" ")
-        }
-
-        /** Joins pieces separated by a short pause so the saved transcript isn't hundreds of fragments. */
-        internal fun mergeIntoParagraphs(parts: List<RefinedSegment>): List<RefinedSegment> {
-            val merged = ArrayList<RefinedSegment>()
-            var cur: RefinedSegment? = null
-            for (p in parts) {
-                val c = cur
-                if (c != null && p.startMs - c.endMs < 2_500 && c.text.length < 280) {
-                    cur = RefinedSegment(c.startMs, p.endMs, c.text + " " + p.text)
-                } else {
-                    if (c != null) merged.add(c)
-                    cur = p
-                }
-            }
-            cur?.let { merged.add(it) }
-            return merged
-        }
+        internal fun mergeIntoParagraphs(parts: List<RefinedSegment>): List<RefinedSegment> =
+            SpeechFilters.mergeIntoParagraphs(parts)
     }
 }

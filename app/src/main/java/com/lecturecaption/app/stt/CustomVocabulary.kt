@@ -15,14 +15,29 @@ object CustomVocabulary {
             .getString(KEY, "").orEmpty()
             .split('\n').map { it.trim() }.filter { it.isNotEmpty() }
 
-    /** Returns false if the term was blank or already present. */
+    /**
+     * Adds one or many words. Accepts a pasted list separated by commas, semicolons or new lines
+     * (bulk import). Returns false if nothing new was added.
+     */
     fun add(context: Context, term: String): Boolean {
-        val clean = term.trim().replace(Regex("\\s+"), " ")
-        if (clean.isEmpty()) return false
+        val incoming = DictionaryImport.parse(term)
+        if (incoming.isEmpty()) return false
         val current = load(context)
-        if (current.any { it.equals(clean, ignoreCase = true) }) return false
-        save(context, current + clean)
+        val known = current.map { it.lowercase() }.toSet()
+        val fresh = incoming.filter { it.lowercase() !in known }
+        if (fresh.isEmpty()) return false
+        save(context, current + fresh)
         return true
+    }
+
+    /**
+     * Learns words from a user's correction of a transcript (original text vs the edited text) and
+     * adds them. Returns the words added. Ready for a transcript-edit screen; nothing calls it yet.
+     */
+    fun learnFrom(context: Context, original: String, edited: String): List<String> {
+        val words = CorrectionLearner.extract(original, edited, load(context))
+        words.forEach { add(context, it) }
+        return words
     }
 
     fun remove(context: Context, term: String) {

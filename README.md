@@ -21,11 +21,31 @@ no network access to Google's Maven repository (`dl.google.com`)**. That means:
   ("Gradle wrapper not found — attempting to use local Gradle distribution" or a prompt to
   create one) — accept that prompt, or run `gradle wrapper` once with any local Gradle
   install.
-- **Whisper inference is a real stub, not a working feature.** Vosk is fully wired and
-  will actually transcribe. Whisper's model download/management UI works, but there's no
-  compiled whisper.cpp native library behind it — see `WhisperEngine.kt` for exactly what's
-  needed to finish it. I'd rather tell you this plainly than hand you code that pretends
-  to call an inference engine that isn't there.
+- The Whisper and Online passes ARE real (sherpa-onnx Silero VAD + Whisper, optional Gemini),
+  but like everything Android-side they have never been run on a device from my environment.
+  Only the pure-Kotlin logic (auto-gain, WSOLA, vocabulary corrector, hallucination/energy
+  filters, batching) was compiled and unit-tested outside Android.
+
+## What changed in 0.10.0 (proper words, ported from OpenWhispr; UI untouched)
+- `WordBank.kt`: bulk word import (commas, semicolons or new lines, deduped), a spelling-hint prompt
+  cut at a whole word (OpenWhispr's prompt cap), and a dictionary-echo filter that drops a hint list the
+  model recites on noise or after the speech. The Online pass now uses all three.
+- `CorrectionLearner` (learns new words from a user's edit, e.g. "Shunade" -> "Sinead") and
+  `CustomVocabulary.learnFrom()`. Nothing calls it yet, because the app has no transcript-edit screen.
+- VoiceFlow had no dictionary logic; its VAD settings (500 ms silence) match what the app already uses.
+- Tests: `WordBankTest` reuses OpenWhispr's own test cases.
+
+## What changed in 0.9.0 (backend only, UI untouched)
+- Auto-gain: new boost-only AGC (adaptive noise floor, max 4x, never attenuates, never lifts
+  silence/noise), applied once to the averaged system+mic signal.
+- Hallucination/noise guards moved to a tested `SpeechFilters`: energy gate now also checks
+  peaks and activity (rejects hiss and clicks); removes subtitle credits, "please subscribe",
+  more sign-offs (English and Hindi) on short clips, and phrase loops.
+- Online batches are now truly <= 45 s including the silence joined between segments.
+- Vocabulary corrector keeps line breaks, never joins across punctuation/lines, and catches
+  one-consonant slips in multi-word terms ("navia stokes" -> "Navier-Stokes") while still
+  rejecting look-alikes ("never stoke").
+- Unit tests added: AutoGainTest, SpeechFiltersTest, BatchAndVocabExtraTest.
 
 ## What's real and working
 
@@ -59,7 +79,7 @@ no network access to Google's Maven repository (`dl.google.com`)**. That means:
 app/src/main/java/com/lecturecaption/app/
   audio/       MediaProjection + AudioRecord capture, chunking pipeline
   data/        Room entities, DAOs, database, repository
-  stt/         SpeechEngine interface, Vosk (working), Whisper (stub), model downloads
+  stt/         SpeechEngine interface, Vosk (working), Whisper + Online refiners, SpeechFilters, model downloads
   service/     Foreground service, MediaProjection request bridge activity
   overlay/     Floating live-caption window
   ui/screens/  Compose screens (Main, History, Transcript Viewer, Settings, Privacy)
@@ -80,9 +100,8 @@ app/src/main/java/com/lecturecaption/app/
 3. Connect your Motorola Edge 50 Neo (Android 16) with USB debugging enabled, or use an
    API 34+ emulator image (system-audio capture behaves closest to a real device; some
    emulator images virtualize audio differently).
-4. Run the app. In Settings, download the **Vosk small (English)** model first — Local
-   Whisper won't transcribe until the native module described in `WhisperEngine.kt` is
-   added.
+4. Run the app. In Settings, download the **Vosk small (English)** model first — For the
+   accurate transcript also download the speech detector and a Whisper size.
 5. On the main screen, leave **System Audio** selected (the default), pick **Vosk**, and
    tap **Start Transcription**. Grant the screen-capture consent dialog (this is what
    `MediaProjectionRequestActivity` triggers) and the overlay permission if prompted.

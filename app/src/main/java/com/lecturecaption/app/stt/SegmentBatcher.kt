@@ -23,7 +23,7 @@ internal class SegmentBatcher(
     /** Adds a segment. Returns the previous batch if this segment doesn't belong in it. */
     fun add(segStartMs: Long, samples: FloatArray): SpeechBatch? {
         var finished: SpeechBatch? = null
-        if (parts.isNotEmpty() && (segStartMs - endMs > maxGapMs || total + samples.size > maxBatchSamples)) {
+        if (parts.isNotEmpty() && (segStartMs - endMs > maxGapMs || sizeWith(samples.size) > maxBatchSamples)) {
             finished = flush()
         }
         if (parts.isEmpty()) startMs = segStartMs
@@ -32,6 +32,9 @@ internal class SegmentBatcher(
         endMs = segStartMs + samples.size * 1000L / sampleRate
         return finished
     }
+
+    /** Total samples of the batch if a segment of [n] samples were added, INCLUDING the join silences. */
+    private fun sizeWith(n: Int): Int = total + n + sampleRate * joinSilenceMs / 1000 * parts.size
 
     /** Returns whatever is pending as a batch (or null if nothing is). */
     fun flush(): SpeechBatch? {

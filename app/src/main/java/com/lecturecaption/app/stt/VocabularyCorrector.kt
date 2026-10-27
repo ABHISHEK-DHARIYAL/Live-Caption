@@ -21,30 +21,41 @@ class VocabularyCorrector(terms: List<String>) {
 
     val isEmpty: Boolean get() = entries.isEmpty()
 
+    /** A word plus the exact whitespace that follows it, so line breaks survive a correction. */
+    private class Tok(val word: String, val gap: String)
+
+    private fun tokenize(text: String): Pair<String, List<Tok>> {
+        val lead = text.takeWhile { it.isWhitespace() }
+        val toks = WORD.findAll(text.substring(lead.length)).map { Tok(it.groupValues[1], it.groupValues[2]) }.toList()
+        return lead to toks
+    }
+
     fun correct(text: String): String {
         if (entries.isEmpty() || text.isBlank()) return text
-        val tokens = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        val out = ArrayList<String>(tokens.size)
+        val (lead0, tokens) = tokenize(text)
+        val out = StringBuilder(lead0)
         var i = 0
         while (i < tokens.size) {
             var replaced = false
             for (n in 1..MAX_SPAN) { // shortest span first, so neighbouring words are not swallowed
                 if (i + n > tokens.size) continue
                 val span = tokens.subList(i, i + n)
-                val cores = span.map { coreOf(it) }
+                // Punctuation inside a multi-word span ("navia, stokes") means it is not one term.
+                if (n > 1 && span.dropLast(1).any { t -> t.word.last().let { !it.isLetterOrDigit() } || t.gap.contains('\n') }) continue
+                val cores = span.map { coreOf(it.word) }
                 if (cores.any { it.isEmpty() }) continue
                 val compact = cores.joinToString("").lowercase()
                 val best = bestMatch(compact, n) ?: continue
-                val lead = span.first().takeWhile { !it.isLetterOrDigit() }
-                val trail = span.last().takeLastWhile { !it.isLetterOrDigit() }
-                out.add(lead + best.original + trail)
+                val lead = span.first().word.takeWhile { !it.isLetterOrDigit() }
+                val trail = span.last().word.takeLastWhile { !it.isLetterOrDigit() }
+                out.append(lead).append(best.original).append(trail).append(span.last().gap)
                 i += n
                 replaced = true
                 break
             }
-            if (!replaced) { out.add(tokens[i]); i++ }
+            if (!replaced) { out.append(tokens[i].word).append(tokens[i].gap); i++ }
         }
-        return out.joinToString(" ")
+        return out.toString()
     }
 
     private fun bestMatch(compact: String, spanWords: Int): Entry? {
@@ -57,11 +68,18 @@ class VocabularyCorrector(terms: List<String>) {
             if (len < MIN_FUZZY_LEN) continue
             val dist = levenshtein(compact, e.compact, 4)
             val maxDist = when { len <= 5 -> 1; len <= 8 -> 2; else -> 3 }
-            val sameSound = skeletonOf(compact) == e.skeleton
+            val skel = skeletonOf(compact)
+            val exactSound = skel == e.skeleton
+            // Multi-word speech errors often differ by one consonant ("navia stokes" / "navier stokes"),
+            // so a one-letter skeleton difference also counts as "sounds alike" - but only for longer
+            // terms, and only with a tighter spelling limit (see below).
+            val closeSound = !exactSound && spanWords > 1 && e.skeleton.length >= 6 &&
+                levenshtein(skel, e.skeleton, 1) <= 1
+            val sameSound = exactSound || closeSound
             // Gluing 2-3 spoken words into one term is how "cuber nets" -> Kubernetes works, but it is
             // also how correct words get swallowed. For multi-word spans the sound pattern MUST match;
             // closeness of spelling alone is not enough.
-            val ok = if (spanWords > 1) dist <= maxDist && sameSound && len >= 5
+            val ok = if (spanWords > 1) dist <= (if (exactSound) maxDist else minOf(maxDist, 2)) && sameSound && len >= 5
                      else dist <= maxDist && (sameSound && len >= 5 || compact.first() == e.compact.first())
             if (ok && dist < bestDist) { best = e; bestDist = dist }
         }
@@ -89,6 +107,7 @@ class VocabularyCorrector(terms: List<String>) {
     }
 
     companion object {
+        private val WORD = Regex("(\\S+)(\\s*)")
         private const val MAX_SPAN = 3
         private const val MIN_FUZZY_LEN = 4
 

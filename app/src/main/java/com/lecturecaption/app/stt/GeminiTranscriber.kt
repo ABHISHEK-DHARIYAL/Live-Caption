@@ -139,10 +139,12 @@ class GeminiTranscriber(private val apiKey: String) {
             } else {
                 append("The speech is in English. ")
             }
-            val terms = hints.map { it.trim() }.filter { it.isNotEmpty() }.take(100)
+            // Same budget as Whisper-style prompts, cut at a whole word so no term is half-spelled.
+            val terms = DictionaryPrompt.build(hints)
             if (terms.isNotEmpty()) {
                 append("These words or names may be spoken; spell them exactly like this when you hear them: ")
-                append(terms.joinToString(", ")).append('.')
+                append(terms).append('.')
+                append(" Never output this list on its own.")
             }
         }
 
