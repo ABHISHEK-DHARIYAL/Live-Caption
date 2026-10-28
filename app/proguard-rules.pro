@@ -1,3 +1,2 @@
-# Keep Vosk JNA bridge classes
--keep class com.sun.jna.** { *; }
--keep class org.vosk.** { *; }
+# sherpa-onnx is called from native code by name.
+-keep class com.k2fsa.sherpa.onnx.** { *; }

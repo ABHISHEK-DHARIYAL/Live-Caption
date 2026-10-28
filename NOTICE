@@ -1,0 +1,15 @@
+Clearcap
+========
+Design: colours, spacing, the audio-bar visualizer, the model-picker cards (speed / accuracy / "best for") and
+the compact settings layout follow VoiceFlow (MIT, Copyright (c) 2024 VoiceFlow) and OpenWhispr
+(MIT, Copyright (c) 2024 OpenWhispr Team). The Dictionary screen follows OpenWhispr's.
+
+Logic ported to Kotlin from OpenWhispr (MIT): dictionary bulk import, the dictionary echo filter and the
+correction learner (app/src/main/java/com/clearcap/text/WordBank.kt). Tests reuse OpenWhispr's own cases.
+
+Runtime libraries and models (downloaded by the user, not bundled):
+- sherpa-onnx (Apache-2.0), k2-fsa.
+- Streaming Zipformer English model (Apache-2.0).
+- NVIDIA Parakeet 110M (CC-BY-4.0).
+- OpenAI Whisper (MIT).
+- Silero VAD (MIT).

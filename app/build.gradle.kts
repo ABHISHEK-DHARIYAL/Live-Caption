@@ -1,31 +1,24 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.devtools.ksp")
-    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
-    namespace = "com.lecturecaption.app"
+    namespace = "com.clearcap"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.lecturecaption.app"
+        applicationId = "com.clearcap"
         minSdk = 29
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.10.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // Real phones are arm. Dropping x86 keeps the APK much smaller (Vosk + sherpa-onnx both ship
-        // large native libraries). Remove this block if you need to run on an x86 emulator.
+        versionCode = 1
+        versionName = "1.0"
+        // Real phones are arm; dropping x86 keeps the APK small (sherpa-onnx ships large native libraries).
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
-    // Fixed signing key. GitHub Actions creates a NEW random debug key on every run, and Android
-    // refuses to install an APK over an existing install signed with a different key
-    // ("App not installed as package conflicts with an existing package").
+    // Fixed signing key: a new random debug key on every CI run would stop Android installing an update
+    // over the previous build ("App not installed as package conflicts with an existing package").
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -42,42 +35,23 @@ android {
         }
     }
 
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
-
+    buildFeatures { compose = true }
+    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
+    kotlinOptions { jvmTarget = "17" }
     packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-        // Vosk ships jni .so files for multiple ABIs
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
         jniLibs.useLegacyPackaging = true
     }
 }
 
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
-}
-
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    // Encrypts the Gemini API key at rest (EncryptedSharedPreferences), so it isn't sitting in
-    // a plain-text file on disk.
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06") // encrypts the Gemini key
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-service:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.activity:activity-compose:1.9.1")
 
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
@@ -85,30 +59,14 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
-    implementation("androidx.navigation:navigation-compose:2.7.7")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Room
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
-
-    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Vosk offline speech recognition (pure Kotlin/Java + prebuilt native .so, no NDK build needed by us)
-    implementation("com.alphacephei:vosk-android:0.3.47")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
-
-    // sherpa-onnx: on-device Whisper (open vocabulary, so it can spell new words) + Silero VAD.
+    // sherpa-onnx: streaming Zipformer (live), Parakeet / Whisper (accurate), Silero VAD.
     // Prebuilt AAR from https://github.com/k2-fsa/sherpa-onnx/releases (v1.13.8, arm only).
     implementation(files("libs/sherpa-onnx-1.13.8.aar"))
-    // Needed to unpack the .tar.bz2 Whisper model archives on the phone.
-    implementation("org.apache.commons:commons-compress:1.26.2")
+    implementation("org.apache.commons:commons-compress:1.26.2") // unpack the .tar.bz2 model downloads
 
-    // JSON (Vosk results are JSON strings)
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-
-    // Unit tests for the caption merge logic (pure Kotlin): ./gradlew testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
 }

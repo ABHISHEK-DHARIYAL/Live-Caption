@@ -1,3 +1,7 @@
 <resources>
-    <style name="Theme.LectureCaption" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Clearcap" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/window_bg</item>
+    </style>
 </resources>

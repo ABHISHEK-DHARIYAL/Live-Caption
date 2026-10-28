@@ -10,8 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://alphacephei.com/maven") } // Vosk models/aar mirror
     }
 }
-rootProject.name = "LectureCaption"
+rootProject.name = "Clearcap"
 include(":app")

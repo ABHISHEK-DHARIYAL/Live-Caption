@@ -1,162 +1,45 @@
-# LectureCaption
+# Clearcap
 
-**Developed by [Abhishek.DL](https://github.com/ABHISHEK-DHARIYAL)**
+Android app (Kotlin, Jetpack Compose, minSdk 29) that shows live captions for any audio playing on the phone
+(videos, lectures, Meet/Zoom) or the microphone, and saves a transcript. Offline. No accounts, ads or analytics.
 
-A privacy-first Android app that captures system (or microphone) audio, transcribes it
-offline in real time, shows a floating Live-Caption-style overlay, and saves the full
-lecture transcript to a local Room database — continuously, as one session, from Start
-to Stop.
+## Why it is built this way (measured)
+The previous app used Vosk small + a second language model + Whisper at the same time: words came out wrong
+and captions fell ~44 s behind. This one runs ONE light streaming model while you record, and the heavy model
+only after you stop.
 
-## ⚠️ Read this first — what I could and couldn't verify
+Desktop benchmark (sherpa-onnx, 1 CPU core, int8, 35 s of test speech with clean / 1.5x-speed / noisy / low-bitrate
+variants; WER lower is better, RTF = processing time / audio time):
 
-I built this in a sandboxed environment with **no Android SDK, no Gradle, no emulator, and
-no network access to Google's Maven repository (`dl.google.com`)**. That means:
+| Engine | role | WER (clean .. worst) | RTF |
+|---|---|---|---|
+| Streaming Zipformer en-2023-06-26 | live (default) | 0.0% .. 2.6% | 0.10 |
+| Streaming Zipformer 20M | (rejected: too inaccurate) | 13% .. 27% | 0.05 |
+| Parakeet 110M | accurate pass (default) | 2.6% .. 5.2% | 0.05 |
+| Whisper tiny.en / base.en | (Whisper kept for Hindi) | 6.5% / 3.9% .. 12% | 0.17 / 0.27 |
+| Moonshine tiny | not used | 3.9% .. 5.2% | 0.05 |
 
-- I could not run a Gradle build, so **this project has not been compiled**. You need to
-  open it in Android Studio, let Gradle sync, fix whatever version mismatch comes up
-  (AGP/Kotlin/Compose compiler versions drift constantly — see "If sync fails" below),
-  and build it there.
-- The Gradle wrapper jar (`gradle/wrapper/gradle-wrapper.jar`) is a binary file I can't
-  fetch from here. Android Studio will offer to regenerate it automatically on first open
-  ("Gradle wrapper not found — attempting to use local Gradle distribution" or a prompt to
-  create one) — accept that prompt, or run `gradle wrapper` once with any local Gradle
-  install.
-- The Whisper and Online passes ARE real (sherpa-onnx Silero VAD + Whisper, optional Gemini),
-  but like everything Android-side they have never been run on a device from my environment.
-  Only the pure-Kotlin logic (auto-gain, WSOLA, vocabulary corrector, hallucination/energy
-  filters, batching) was compiled and unit-tested outside Android.
+Caveats: tiny sample (3 clips), read speech, desktop CPU, not a phone. Vosk could not be benchmarked here.
+Decode-time dictionary biasing ("hotwords") ran at no speed cost but did not fix the one real error I could
+test (a very common word), so it is not included; dictionary words are corrected after decoding instead.
 
-## What changed in 0.10.0 (proper words, ported from OpenWhispr; UI untouched)
-- `WordBank.kt`: bulk word import (commas, semicolons or new lines, deduped), a spelling-hint prompt
-  cut at a whole word (OpenWhispr's prompt cap), and a dictionary-echo filter that drops a hint list the
-  model recites on noise or after the speech. The Online pass now uses all three.
-- `CorrectionLearner` (learns new words from a user's edit, e.g. "Shunade" -> "Sinead") and
-  `CustomVocabulary.learnFrom()`. Nothing calls it yet, because the app has no transcript-edit screen.
-- VoiceFlow had no dictionary logic; its VAD settings (500 ms silence) match what the app already uses.
-- Tests: `WordBankTest` reuses OpenWhispr's own test cases.
+## Pipeline
+capture (AudioPlaybackCapture and/or mic, averaged) -> boost-only auto-gain -> 100 ms chunks
+-> streaming Zipformer (live captions) + Silero VAD (keeps speech in RAM only)
+-> on Stop: save live transcript -> Parakeet (English) or Whisper (Hindi/other) per speech segment
+-> noise gate + hallucination filter + dictionary corrector -> saved as the final transcript.
+If the accurate pass fails or is skipped, the live transcript is kept.
 
-## What changed in 0.9.0 (backend only, UI untouched)
-- Auto-gain: new boost-only AGC (adaptive noise floor, max 4x, never attenuates, never lifts
-  silence/noise), applied once to the averaged system+mic signal.
-- Hallucination/noise guards moved to a tested `SpeechFilters`: energy gate now also checks
-  peaks and activity (rejects hiss and clicks); removes subtitle credits, "please subscribe",
-  more sign-offs (English and Hindi) on short clips, and phrase loops.
-- Online batches are now truly <= 45 s including the silence joined between segments.
-- Vocabulary corrector keeps line breaks, never joins across punctuation/lines, and catches
-  one-consonant slips in multi-word terms ("navia stokes" -> "Navier-Stokes") while still
-  rejecting look-alikes ("never stoke").
-- Unit tests added: AutoGainTest, SpeechFiltersTest, BatchAndVocabExtraTest.
+## Screens
+Home (record, source: system / mic / both, live captions) - History (search) - Transcript (edit, copy, share,
+AI notes) - Dictionary (add, bulk import, edit; editing a transcript learns new words) - Settings (model cards).
 
-## What's real and working
+## Build
+GitHub: push this folder, Actions -> "Build APK" -> download the artifact (see GITHUB_ACTIONS_SETUP.md).
+Local: open in Android Studio. First launch: Settings -> Download "Live English" (310 MB) and "Parakeet" (104 MB)
+and "Speech detector" (1 MB). Downloads happen only when you tap Download and resume if interrupted.
 
-- MediaProjection + `AudioPlaybackCaptureConfiguration` + `AudioRecord` system-audio capture
-  (`audio/AudioCaptureManager.kt`), using the actual public API
-  (`AudioPlaybackCaptureConfiguration.Builder(mediaProjection).addMatchingUsage(...)`),
-  not an invented one.
-- A transparent bridge Activity (`MediaProjectionRequestActivity`) to show the system
-  consent dialog, since only an Activity can launch it — a Service cannot.
-- A foreground service (`TranscriptionForegroundService`) declaring
-  `foregroundServiceType="mediaProjection"`, which is mandatory on Android 14+ (API 34) for
-  a service using a MediaProjection-backed AudioRecord.
-- Vosk offline speech recognition, fully wired end to end (`stt/VoskEngine.kt`), with a
-  real model download/unzip/delete flow (`stt/ModelManager.kt`) driven from Settings.
-- Room database with `Lecture` + `TranscriptSegment` entities; every recognized chunk is
-  written to disk immediately (`LectureRepository.appendSegment`), not batched at session
-  end, so a crash loses at most one unflushed chunk.
-- A floating overlay window (`overlay/CaptionOverlayManager.kt`) via
-  `WindowManager` + `TYPE_APPLICATION_OVERLAY`, draggable, resizable, with adjustable font
-  size/transparency/background/max lines, that survives switching apps because it's
-  attached to WindowManager, not to any Activity.
-- Lecture history, transcript viewer, TXT/Markdown export via `FileProvider` share intent,
-  copy-all, search, rename, delete.
-- A `Delete All Data` control and a static Privacy screen matching the required notice text.
-- A deliberately decoupled `NotesGenerator` interface so a real AI provider can be dropped
-  in later without touching any transcription code.
-
-## Project structure
-
-```
-app/src/main/java/com/lecturecaption/app/
-  audio/       MediaProjection + AudioRecord capture, chunking pipeline
-  data/        Room entities, DAOs, database, repository
-  stt/         SpeechEngine interface, Vosk (working), Whisper + Online refiners, SpeechFilters, model downloads
-  service/     Foreground service, MediaProjection request bridge activity
-  overlay/     Floating live-caption window
-  ui/screens/  Compose screens (Main, History, Transcript Viewer, Settings, Privacy)
-  viewmodel/   MainViewModel
-  export/      TXT/Markdown export
-  notes/       Placeholder "Generate Notes" module
-```
-
-## Build & run
-
-1. Open the `LectureCaption/` folder in Android Studio (Koala/2024.1 or newer recommended
-   for AGP 8.5.x + Compose compiler 1.5.14).
-2. Let Gradle sync. **If sync fails on version mismatches**, this is expected — I picked
-   currently-plausible versions (AGP 8.5.2, Kotlin 1.9.24, Compose BOM 2024.06.00, Room
-   2.6.1) but couldn't verify them against a live Maven index. Use Android Studio's
-   "Upgrade Assistant" / suggested quick-fixes to align AGP/Kotlin/Compose-compiler
-   versions — they must match each other's compatibility table.
-3. Connect your Motorola Edge 50 Neo (Android 16) with USB debugging enabled, or use an
-   API 34+ emulator image (system-audio capture behaves closest to a real device; some
-   emulator images virtualize audio differently).
-4. Run the app. In Settings, download the **Vosk small (English)** model first — For the
-   accurate transcript also download the speech detector and a Whisper size.
-5. On the main screen, leave **System Audio** selected (the default), pick **Vosk**, and
-   tap **Start Transcription**. Grant the screen-capture consent dialog (this is what
-   `MediaProjectionRequestActivity` triggers) and the overlay permission if prompted.
-6. Play audio in another app (YouTube, a podcast app, etc.) and switch back to
-   LectureCaption or to any other app — the floating caption and the persistent
-   notification should keep running.
-
-## Known platform restrictions (not bugs)
-
-- **Some apps block playback capture.** Android lets an app mark its audio as
-  non-capturable via `AudioAttributes.Builder#setAllowedCapturePolicy` — commonly used by
-  DRM-protected video players. When that happens, `AudioRecord.Builder.build()` throws
-  `UnsupportedOperationException`, or the resulting `AudioRecord` fails to initialize.
-  The app surfaces this as "System audio could not be captured…" (see
-  `AudioCaptureManager` → `AudioCaptureError.TargetAppBlocksCapture`) rather than pretending
-  to bypass it — because it can't, and shouldn't.
-- **Android 14+ foreground service rules.** `foregroundServiceType="mediaProjection"` in
-  the manifest is required, and `MediaProjection.registerCallback()` must be called before
-  starting capture — both are already implemented.
-- **No microphone permission is requested when System Audio is selected.** `RECORD_AUDIO`
-  is only requested on the Microphone path (`MainActivity.requestMicPermission`).
-
-## Development phases (matches the original spec's plan)
-
-The code is written phase-by-phase as requested — Phase 1–4 (system audio → PCM →
-Vosk → live overlay → Room → history) are implemented and should work once you fix any
-Gradle version drift. Phase 5 (export) is implemented. Phase 6 (AI notes) is intentionally
-a placeholder, not connected to any API.
-
-## Accurate transcript (Whisper, on-device) — v0.8
-
-Vosk still produces the instant live caption. In parallel, **Whisper** (via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx))
-listens to the same audio, cuts it into speech segments with Silero VAD and transcribes each one on the phone.
-When you press **Finish**, a *complete* Whisper result replaces the saved transcript (database, My Lectures, exported .txt).
-If Whisper can't finish (backlog too large, error, timeout) the Vosk transcript is kept — text is never lost.
-
-* Settings → "Accurate transcript (Whisper)": download one model (Tiny / Base / Small) and keep the switch on.
-  The best downloaded model (Small > Base > Tiny) is used. A ~1 MB speech-detector model is fetched automatically.
-* Language: Hindi + English mode lets Whisper auto-detect per segment; English-only mode forces English.
-* Settings → "Custom words": names/terms are also fixed in Whisper's output.
-* Native libs: `app/libs/sherpa-onnx-1.13.8.aar` (arm64-v8a + armeabi-v7a only). To run on an x86 emulator, use the
-  full AAR from the sherpa-onnx releases page and remove the `abiFilters` line in `app/build.gradle.kts`.
-* Tests: `./gradlew testDebugUnitTest` (VocabularyCorrectorTest, WhisperRefinerTest, TranscriptionPipelineTest).
-
-## Online mode (optional, off by default)
-
-Settings → **Online mode**. The live caption always stays on the phone (Vosk). With Online mode on,
-a saved Gemini API key and an internet connection, pressing **Finish** sends only the parts of the
-lecture where someone is speaking (16 kHz WAV, batched into ≤45 s requests, HTTPS) to Google's Gemini
-API and replaces the saved transcript with the result (`stt/OnlineRefiner.kt`, `stt/GeminiTranscriber.kt`).
-
-- Turning it on shows a warning first; it is never enabled implicitly.
-- No key / no internet / any failure → the offline transcript is kept (never a transcript with holes).
-- When it is used, on-phone Whisper is skipped for that lecture (saves battery).
-- Your custom word list is sent as spelling hints.
-- Uses the same key and model list as AI Notes. Free-tier rate limits apply (batching keeps requests to ~1–2 per minute of speech).
-- Request format (`generateContent` with inline `audio/wav`, `x-goog-api-key` header, `v1beta`) matches Google's audio-understanding docs. Requests do not ask Google to store them (`generateContent` does not store by default); if you turned on project logging in AI Studio (paid tier), audio can be kept in that log for up to 55 days.
-- Not yet compiled or run on a device — build it and test with a real lecture before relying on it.
+## Not verified
+Nothing Android-side has been compiled or run from my environment (no Android SDK). The pure-Kotlin logic
+(text, dictionary, filters, auto-gain) has 46 passing unit tests. Capture code is reused from the earlier app
+that ran on a phone. Live captions are English only; Hindi works in the accurate pass (Whisper).

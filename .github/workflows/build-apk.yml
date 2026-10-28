@@ -42,12 +42,12 @@ jobs:
       - name: Name the APK
         run: |
           VER=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
-          cp app/build/outputs/apk/debug/app-debug.apk "LectureCaption-${VER}-debug.apk"
-          echo "APK_FILE=LectureCaption-${VER}-debug.apk" >> "$GITHUB_ENV"
+          cp app/build/outputs/apk/debug/app-debug.apk "Clearcap-${VER}-debug.apk"
+          echo "APK_FILE=Clearcap-${VER}-debug.apk" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LectureCaption-debug-apk
+          name: Clearcap-debug-apk
           path: ${{ env.APK_FILE }}
           if-no-files-found: error
 
