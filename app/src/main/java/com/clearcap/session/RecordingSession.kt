@@ -5,6 +5,7 @@ import com.clearcap.App
 import com.clearcap.capture.AudioCaptureManager
 import com.clearcap.capture.AutoGain
 import com.clearcap.data.AppSettings
+import com.clearcap.data.LiveMode
 import com.clearcap.data.Source
 import com.clearcap.data.Transcript
 import com.clearcap.engine.AccurateEngine
@@ -29,6 +30,9 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * One recording. While it runs, ONLY the light streaming engine (and the speech detector) work, so captions
@@ -47,6 +51,14 @@ class RecordingSession(
     private val lines = ArrayList<Timed>()
     private val texts = ArrayList<String>()
 
+    // ACCURATE live mode: the speech detector cuts sentences, a strong offline model decodes each one on its own
+    // thread a few seconds later. FAST mode: one streaming model, instant but weaker.
+    private val accurateLive = cfg.liveMode == LiveMode.ACCURATE
+    private val decodeExec = Executors.newSingleThreadExecutor { r -> Thread(r, "clearcap-decode") }
+    private val queue = LinkedBlockingQueue<Speech>()
+    private val pendingMs = AtomicLong(0)
+    @Volatile private var decoding = true
+    private var strong: AccurateEngine? = null
     private var live: LiveEngine? = null
     private var collector: SpeechCollector? = null
     private var job: Job? = null
@@ -58,20 +70,15 @@ class RecordingSession(
 
     /** Returns an error message, or null when the engines are ready and capture was started. */
     fun start(scope: CoroutineScope, includeSystem: Boolean, includeMic: Boolean): String? {
-        val files = app.models.liveFiles()?.takeIf { app.models.isInstalled(Models.live) }
-            ?: return "Download the live model in Settings first."
-        live = try {
-            LiveEngine(files, threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 3))
-        } catch (e: Throwable) {
-            return "Could not load the live model: ${e.message}"
-        }
-        collector = makeCollector()
+        val err = if (accurateLive) loadAccurateLive() else loadFast()
+        if (err != null) return err
 
         t0 = SystemClock.elapsedRealtime()
         // Subscribe BEFORE capture starts so the first chunk is not lost.
         job = scope.launch(worker) {
             capture.chunks.collect { c -> onChunk(c.samples, c.length) }
         }
+        if (accurateLive) decodeExec.execute(::decodeLoop)
         val ok = when {
             includeSystem && includeMic -> capture.startSystemAndMicrophoneCapture()
             includeSystem -> capture.startSystemAudioCapture()
@@ -79,8 +86,41 @@ class RecordingSession(
         }
         if (!ok) {
             job?.cancel()
+            decoding = false
             release()
             return "" // the capture manager reports the reason through its error flow
+        }
+        return null
+    }
+
+    private fun loadFast(): String? {
+        val files = app.models.liveFiles()?.takeIf { app.models.isInstalled(Models.live) }
+            ?: return "Download the live model in Settings first (or choose Accurate live captions)."
+        live = try {
+            LiveEngine(files, threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 3))
+        } catch (e: Throwable) {
+            return "Could not load the live model: ${e.message}"
+        }
+        collector = makeCollector()
+        return null
+    }
+
+    private fun loadAccurateLive(): String? {
+        val spec = Models.accurate.firstOrNull { it.id == cfg.accurateModelId } ?: Models.parakeet600
+        val m = app.models
+        val files = m.accurateFiles(spec)?.takeIf { m.isInstalled(spec) }
+        if (files == null || !m.isInstalled(Models.vad)) {
+            return "Download ${spec.label} and the speech detector in Settings first, or switch Live captions to Fast."
+        }
+        strong = try {
+            AccurateEngine(spec, files, cfg.language, Runtime.getRuntime().availableProcessors().coerceIn(2, 4))
+        } catch (e: Throwable) {
+            return "Could not load ${spec.label}: ${e.message}"
+        }
+        collector = try {
+            SpeechCollector(m.vadPath(), keep = false)
+        } catch (e: Throwable) {
+            return "Could not load the speech detector: ${e.message}"
         }
         return null
     }
@@ -99,17 +139,22 @@ class RecordingSession(
     // ---- runs on the worker thread ----
 
     private fun onChunk(samples: ShortArray, length: Int) {
-        val lv = live ?: return
         try {
-            lv.accept(samples, length)?.let(::onLive)
-            collector?.feed(samples, length)
+            if (accurateLive) {
+                collector?.feed(samples, length)
+                collector?.takeNew()?.forEach(::enqueue)
+            } else {
+                val lv = live ?: return
+                lv.accept(samples, length)?.let(::onLive)
+                collector?.feed(samples, length)
+            }
         } catch (e: Throwable) {
             SessionBus.update { it.copy(error = "Recognizer error: ${e.message}") }
         }
         processed += length
         val now = SystemClock.elapsedRealtime()
         val audioMs = processed * 1000L / 16_000
-        val lag = (now - t0 - audioMs).coerceAtLeast(0)
+        val lag = if (accurateLive) pendingMs.get() else (now - t0 - audioMs).coerceAtLeast(0)
         worstLag = maxOf(worstLag, lag)
         val level = (AutoGain.rms(samples, length) * 5f).coerceIn(0f, 1f)
         SessionBus.update { it.copy(level = level, elapsedMs = now - t0, behindMs = lag) }
@@ -129,15 +174,48 @@ class RecordingSession(
         val s = TranscriptText.liveSentence(raw, corrector)
         val start = if (segStart >= 0) segStart else posMs()
         segStart = -1
-        if (s.isNotEmpty()) {
-            lines.add(Timed(start, posMs(), s))
-            texts.add(s)
-        }
-        val snap = texts.toList()
-        SessionBus.update { it.copy(partial = "", lines = snap) }
+        if (s.isNotEmpty()) addTimed(Timed(start, posMs(), s), s)
+        SessionBus.update { it.copy(partial = "") }
     }
 
     private fun posMs() = processed * 1000L / 16_000
+
+    // ---- ACCURATE live mode ----
+
+    private fun enqueue(sp: Speech) {
+        pendingMs.addAndGet(sp.endMs - sp.startMs)
+        queue.put(sp)
+    }
+
+    /** Decodes finished sentences one at a time with the strong model; runs until stopped and drained. */
+    private fun decodeLoop() {
+        val engine = strong ?: return
+        while (true) {
+            val sp = queue.poll(200, TimeUnit.MILLISECONDS)
+            if (sp == null) {
+                if (!decoding) break
+                continue
+            }
+            try {
+                val dur = sp.endMs - sp.startMs
+                val floats = sp.floats()
+                if (SpeechFilters.isSpeechLike(floats)) {
+                    val clean = SpeechFilters.cleanUp(engine.transcribe(floats), dur)
+                    val text = TranscriptText.sentenceCase(corrector.correct(clean)).trim()
+                    if (text.isNotEmpty()) addTimed(Timed(sp.startMs, sp.endMs, text), text)
+                }
+            } catch (e: Throwable) {
+                SessionBus.update { it.copy(error = "Recognizer error: ${e.message}") }
+            } finally {
+                pendingMs.addAndGet(-(sp.endMs - sp.startMs))
+            }
+        }
+    }
+
+    private fun addTimed(t: Timed, text: String) {
+        val snap = synchronized(lines) { lines.add(t); texts.add(text); texts.toList() }
+        SessionBus.update { it.copy(lines = snap) }
+    }
 
     // ---- stop ----
 
@@ -152,9 +230,10 @@ class RecordingSession(
             live?.finish()?.takeIf { it.isNotBlank() }?.let { addFinal(it) }
         }
         SessionBus.update { it.copy(running = false, partial = "", level = 0f) }
-        val speech = collector?.finish().orEmpty()
-        val cut = collector?.truncatedAtMs
-        val liveText = TranscriptText.join(lines)
+        if (accurateLive) finishAccurateLive()
+        val speech = if (accurateLive) emptyList() else collector?.finish().orEmpty()
+        val cut = if (accurateLive) null else collector?.truncatedAtMs
+        val liveText = synchronized(lines) { TranscriptText.join(lines.toList()) }
         if (liveText.isBlank() && speech.isEmpty()) {
             SessionBus.update { it.copy(status = "No speech was captured, so nothing was saved.") }
             release()
@@ -172,6 +251,26 @@ class RecordingSession(
         SessionBus.update { it.copy(savedId = t.id) }
         if (speech.isNotEmpty()) accurate(t, speech, cut)
         release()
+    }
+
+    /** Flush the speech detector, then wait for the strong model to finish the sentences still queued. */
+    private suspend fun finishAccurateLive() {
+        withContext(worker) {
+            collector?.finish()
+            collector?.takeNew()?.forEach(::enqueue)
+        }
+        SessionBus.update { it.copy(progress = 0f, progressLabel = "Finishing the last sentences") }
+        val total = pendingMs.get().coerceAtLeast(1)
+        while (pendingMs.get() > 0 && !cancelAccurate) {
+            val p = 1f - pendingMs.get().toFloat() / total
+            SessionBus.update { it.copy(progress = p.coerceIn(0f, 1f)) }
+            delay(200)
+        }
+        decoding = false
+        if (cancelAccurate) queue.clear()
+        decodeExec.shutdown()
+        decodeExec.awaitTermination(30, TimeUnit.SECONDS)
+        SessionBus.update { it.copy(progress = null) }
     }
 
     private suspend fun accurate(t: Transcript, speech: List<Speech>, cut: Long?) {
@@ -224,14 +323,19 @@ class RecordingSession(
 
     private fun release() {
         runCatching { live?.close() }
+        runCatching { strong?.close() }
         runCatching { collector?.release() }
         live = null
+        strong = null
         collector = null
+        decodeExec.shutdown()
         exec.shutdown()
     }
 
     /** Hard stop without saving (service destroyed). */
     fun abort() {
+        decoding = false
+        queue.clear()
         capture.stopCapture()
         job?.cancel()
         release()

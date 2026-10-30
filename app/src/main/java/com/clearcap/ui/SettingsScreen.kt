@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.clearcap.app
+import com.clearcap.data.LiveMode
 import com.clearcap.engine.ModelKind
 import com.clearcap.engine.ModelSpec
 import com.clearcap.engine.Models
@@ -52,16 +53,29 @@ fun SettingsScreen() {
         Models.all.forEach { ModelCard(it) }
 
         Panel {
-            Text("Accurate transcript", style = MaterialTheme.typography.titleMedium)
-            SwitchRow("Re-transcribe when I stop, and save that version", s.accurate) { v -> set { it.copy(accurate = v) } }
-            Text("Runs after you stop, never during recording, so captions stay real time.", color = t.muted, style = MaterialTheme.typography.labelMedium)
+            Text("Live captions", style = MaterialTheme.typography.titleMedium)
+            Segmented(LiveMode.values().map { it.label }, s.liveMode.ordinal, { i -> set { it.copy(liveMode = LiveMode.values()[i]) } },
+                Modifier.padding(top = 8.dp))
+            Text(
+                if (s.liveMode == LiveMode.ACCURATE) "Accurate: each sentence is transcribed by the model chosen below, a few seconds after it is spoken. Far fewer wrong words; needs the model and the speech detector."
+                else "Fast: words appear instantly from a small streaming model. Much less accurate on fast, noisy or musical audio.",
+                color = t.muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+
+        Panel {
+            Text(if (s.liveMode == LiveMode.ACCURATE) "Model" else "Accurate transcript (after you stop)", style = MaterialTheme.typography.titleMedium)
+            if (s.liveMode == LiveMode.FAST) {
+                SwitchRow("Re-transcribe when I stop, and save that version", s.accurate) { v -> set { it.copy(accurate = v) } }
+                Text("Runs after you stop, never during recording, so captions stay real time.", color = t.muted, style = MaterialTheme.typography.labelMedium)
+            }
             Text("Model", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
             val ids = Models.accurate.map { it.id }
-            Segmented(listOf("Parakeet", "Whisper base", "Whisper small"), ids.indexOf(s.accurateModelId).coerceAtLeast(0), { i -> set { it.copy(accurateModelId = ids[i]) } })
+            Segmented(listOf("Parakeet 600M", "Parakeet 110M", "Whisper base", "Whisper small"), ids.indexOf(s.accurateModelId).coerceAtLeast(0), { i -> set { it.copy(accurateModelId = ids[i]) } })
             Text("Whisper language", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
             val langs = listOf("auto", "en", "hi")
             Segmented(listOf("Auto", "English", "Hindi"), langs.indexOf(s.language).coerceAtLeast(0), { i -> set { it.copy(language = langs[i]) } })
-            Text("Parakeet is English only. For Hindi or mixed speech choose a Whisper model. Live captions are English only.", color = t.muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+            Text("Parakeet is English only. For Hindi or mixed speech choose a Whisper model (Accurate live captions then support Hindi too). Fast captions are English only.", color = t.muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
         }
 
         Panel {

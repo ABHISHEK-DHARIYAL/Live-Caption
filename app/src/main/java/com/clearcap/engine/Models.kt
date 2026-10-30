@@ -49,6 +49,11 @@ object Models {
         BASE + "sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.bz2", 104, 5, 5,
         "Most accurate English transcript, with punctuation and capitals. Fast.",
     )
+    val parakeet600 = ModelSpec(
+        "parakeet-600m", "Parakeet 600M (English, best)", ModelKind.ACCURATE,
+        BASE + "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2", 482, 3, 5,
+        "Most accurate: it got the hardest test (sung, sped-up audio) nearly right where the smaller models failed. Larger download.",
+    )
     val whisperBase = ModelSpec(
         "whisper-base", "Whisper base (multilingual)", ModelKind.ACCURATE,
         BASE + "sherpa-onnx-whisper-base.tar.bz2", 208, 3, 3,
@@ -65,8 +70,8 @@ object Models {
         "Finds the speech so the accurate pass skips silence and noise. Needed for the accurate transcript.",
     )
 
-    val all = listOf(live, parakeet, whisperBase, whisperSmall, vad)
-    val accurate = listOf(parakeet, whisperBase, whisperSmall)
+    val all = listOf(live, parakeet600, parakeet, whisperBase, whisperSmall, vad)
+    val accurate = listOf(parakeet600, parakeet, whisperBase, whisperSmall)
 }
 
 data class DownloadState(val progress: Float = 0f, val phase: String = "", val error: String? = null)
@@ -100,6 +105,10 @@ class ModelManager(private val ctx: Context) {
     fun accurateFiles(m: ModelSpec): ModelFiles? {
         val fs = dir(m).listFiles() ?: return null
         val tok = fs.firstOrNull { it.name.endsWith("tokens.txt") }?.absolutePath ?: return null
+        if (m == Models.parakeet600) {
+            fun pick(key: String) = fs.firstOrNull { it.name == "$key.int8.onnx" }?.absolutePath
+            return ModelFiles(pick("encoder") ?: return null, pick("decoder") ?: return null, pick("joiner") ?: return null, tokens = tok)
+        }
         if (m == Models.parakeet) {
             val model = fs.firstOrNull { it.name == "model.int8.onnx" }?.absolutePath ?: return null
             return ModelFiles(model, tokens = tok)

@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.clearcap.app
+import com.clearcap.data.LiveMode
 import com.clearcap.data.Source
 import com.clearcap.engine.Models
 import com.clearcap.session.CaptureService
@@ -45,7 +46,10 @@ fun HomeScreen(onOpen: (String) -> Unit, onSettings: () -> Unit) {
     val cfg by ctx.app.settings.state.collectAsState()
     val installed by ctx.app.models.installed.collectAsState()
     val all by ctx.app.store.all.collectAsState()
-    val liveReady = Models.live.id in installed
+    val accSpec = Models.accurate.firstOrNull { it.id == cfg.accurateModelId } ?: Models.parakeet600
+    val accurateLive = cfg.liveMode == LiveMode.ACCURATE
+    val liveReady = if (accurateLive) accSpec.id in installed && Models.vad.id in installed else Models.live.id in installed
+    val setupText = if (accurateLive) "${accSpec.label} (${accSpec.downloadMb} MB) and the speech detector (1 MB)" else "the live model (${Models.live.downloadMb} MB)"
     val busy = st.running || st.progress != null
 
     val projection = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -111,8 +115,9 @@ fun HomeScreen(onOpen: (String) -> Unit, onSettings: () -> Unit) {
                         when {
                             st.running -> "Listening. Tap to stop and save."
                             st.progress != null -> "Making the accurate transcript..."
+                            liveReady && accurateLive -> "Tap to start. Sentences appear a few seconds after they are spoken."
                             liveReady -> "Tap to start captions"
-                            else -> "Download the live model to start"
+                            else -> "Download the models in Settings to start"
                         },
                         color = t.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp),
                     )
@@ -122,7 +127,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onSettings: () -> Unit) {
         if (!liveReady) item {
             Panel {
                 Text("Set up the live engine", style = MaterialTheme.typography.titleMedium)
-                Text("Captions run on this phone, offline. One download (about ${Models.live.downloadMb} MB) is needed, only when you tap Download in Settings.",
+                Text("Captions run on this phone, offline. This needs $setupText, downloaded only when you tap Download in Settings.",
                     color = t.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 8.dp))
                 Button(onClick = onSettings) { Text("Open Settings") }
             }

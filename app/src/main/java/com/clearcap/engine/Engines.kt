@@ -6,6 +6,7 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineNemoEncDecCtcModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
@@ -92,7 +93,10 @@ class LiveEngine(files: ModelFiles, threads: Int = 2) : AutoCloseable {
 class AccurateEngine(model: ModelSpec, files: ModelFiles, language: String, threads: Int) : AutoCloseable {
     private val rec: OfflineRecognizer = OfflineRecognizer(
         config = OfflineRecognizerConfig(
-            modelConfig = if (model == Models.parakeet) OfflineModelConfig(
+            modelConfig = if (model == Models.parakeet600) OfflineModelConfig(
+                transducer = OfflineTransducerModelConfig(encoder = files.a, decoder = files.b, joiner = files.c),
+                tokens = files.tokens, numThreads = threads, provider = "cpu", modelType = "nemo_transducer",
+            ) else if (model == Models.parakeet) OfflineModelConfig(
                 nemo = OfflineNemoEncDecCtcModelConfig(model = files.a),
                 tokens = files.tokens, numThreads = threads, provider = "cpu",
             ) else OfflineModelConfig(
@@ -131,7 +135,7 @@ class Speech(val startMs: Long, val endMs: Long, val samples: ShortArray) {
  * pass. Audio is never written to storage. Capped at [maxSpeechMs] so a very long recording can't run out
  * of memory; the rest keeps its live text (see [truncatedAtMs]).
  */
-class SpeechCollector(vadModelPath: String, private val maxSpeechMs: Long = 40 * 60_000L) {
+class SpeechCollector(vadModelPath: String, private val maxSpeechMs: Long = 40 * 60_000L, private val keep: Boolean = true) {
     private val vad = Vad(
         config = VadModelConfig(
             sileroVadModelConfig = SileroVadModelConfig(
@@ -168,6 +172,16 @@ class SpeechCollector(vadModelPath: String, private val maxSpeechMs: Long = 40 *
 
     fun release() = runCatching { vad.release() }.let { }
 
+    private val fresh = ArrayList<Speech>()
+
+    /** Live mode (keep = false): the speech segments that finished since the last call, then forgotten. */
+    fun takeNew(): List<Speech> {
+        if (fresh.isEmpty()) return emptyList()
+        val r = ArrayList(fresh)
+        fresh.clear()
+        return r
+    }
+
     private fun drain() {
         while (!vad.empty()) {
             val seg = vad.front()
@@ -175,10 +189,12 @@ class SpeechCollector(vadModelPath: String, private val maxSpeechMs: Long = 40 *
             val ms = seg.samples.size * 1000L / RATE
             val start = seg.start * 1000L / RATE
             if (seg.samples.size < RATE / 8) continue // under ~125 ms: not a word
+            val sp = Speech(start, start + ms, ShortArray(seg.samples.size) { (seg.samples[it] * 32767f).toInt().coerceIn(-32768, 32767).toShort() })
+            if (!keep) { fresh.add(sp); continue }
             if (truncatedAtMs != null) continue
             if (keptMs + ms > maxSpeechMs) { truncatedAtMs = start; continue }
             keptMs += ms
-            out.add(Speech(start, start + ms, ShortArray(seg.samples.size) { (seg.samples[it] * 32767f).toInt().coerceIn(-32768, 32767).toShort() }))
+            out.add(sp)
         }
     }
 }

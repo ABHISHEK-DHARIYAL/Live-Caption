@@ -23,12 +23,29 @@ Caveats: tiny sample (3 clips), read speech, desktop CPU, not a phone. Vosk coul
 Decode-time dictionary biasing ("hotwords") ran at no speed cost but did not fix the one real error I could
 test (a very common word), so it is not included; dictionary words are corrected after decoding instead.
 
+## Hard-audio test and what it changed (v1.1)
+A 3.5-minute sung, sped-up pop track was run through every engine (single core, whole file; the opening was
+checked against the real lyrics by eye, not scored; lyrics are not included here):
+
+| Engine | Opening verse | Notes |
+|---|---|---|
+| Streaming Zipformer (old live model) | badly wrong, garbled words | why live captions were weak |
+| Parakeet 110M | partly wrong | |
+| Parakeet 600M v2 | nearly right | best; speed ~4x real time on one core |
+| Whisper base | good, but adds "(upbeat music)" and skips words | |
+| Whisper tiny / Moonshine tiny | good start, then invented repeating phrases (18 / 22 repeats) | hallucination loops |
+
+So the default is now **Accurate live captions**: the speech detector cuts sentences and Parakeet 600M (English;
+or Whisper for Hindi) transcribes each one a few seconds after it is spoken. **Fast** (streaming Zipformer) stays
+as an option. Caveat: this was music, not speech, and not on a phone; real-phone speed is untested. If the phone
+cannot keep up the app shows a "behind" warning (pending audio over 5 s).
+
 ## Pipeline
 capture (AudioPlaybackCapture and/or mic, averaged) -> boost-only auto-gain -> 100 ms chunks
--> streaming Zipformer (live captions) + Silero VAD (keeps speech in RAM only)
--> on Stop: save live transcript -> Parakeet (English) or Whisper (Hindi/other) per speech segment
--> noise gate + hallucination filter + dictionary corrector -> saved as the final transcript.
-If the accurate pass fails or is skipped, the live transcript is kept.
+-> ACCURATE (default): Silero VAD cuts sentences -> Parakeet 600M / 110M / Whisper decodes each, a few seconds late
+   FAST: streaming Zipformer, instant; then (optional) the accurate pass over the saved speech after Stop
+-> noise gate + hallucination filter + dictionary corrector -> saved transcript.
+If anything fails the live text is kept.
 
 ## Screens
 Home (record, source: system / mic / both, live captions) - History (search) - Transcript (edit, copy, share,
@@ -36,8 +53,8 @@ AI notes) - Dictionary (add, bulk import, edit; editing a transcript learns new 
 
 ## Build
 GitHub: push this folder, Actions -> "Build APK" -> download the artifact (see GITHUB_ACTIONS_SETUP.md).
-Local: open in Android Studio. First launch: Settings -> Download "Live English" (310 MB) and "Parakeet" (104 MB)
-and "Speech detector" (1 MB). Downloads happen only when you tap Download and resume if interrupted.
+Local: open in Android Studio. First launch: Settings -> Download "Parakeet 600M" (482 MB) and "Speech detector" (1 MB)
+(Fast mode instead needs "Live English", 310 MB). Downloads happen only when you tap Download and resume if interrupted.
 
 ## Not verified
 Nothing Android-side has been compiled or run from my environment (no Android SDK). The pure-Kotlin logic

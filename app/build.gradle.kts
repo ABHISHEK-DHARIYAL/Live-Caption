@@ -11,8 +11,8 @@ android {
         applicationId = "com.clearcap"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         // Real phones are arm; dropping x86 keeps the APK small (sherpa-onnx ships large native libraries).
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
