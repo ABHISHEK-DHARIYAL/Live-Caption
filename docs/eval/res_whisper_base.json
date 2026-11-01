@@ -1,0 +1,30 @@
+{
+  "family": "whisper",
+  "model": "base",
+  "lang": "en",
+  "threads": 1,
+  "load_s": 0.71,
+  "clips": [
+    {
+      "clip": "en_0",
+      "audio_s": 6.62,
+      "decode_s": 1.12,
+      "rtf": 0.169,
+      "text": "After early nightfall, the yellow lamps would light up here and there, the squalid quarter of the brothels."
+    },
+    {
+      "clip": "en_1",
+      "audio_s": 16.71,
+      "decode_s": 2.79,
+      "rtf": 0.167,
+      "text": "God as a direct consequence of the sin which man thus punished had given her a lovely child whose place was on that same dishonored bosom to connect her parent forever with the race and descent of mortals and to be finally a blessed soul in heaven."
+    },
+    {
+      "clip": "en_8k",
+      "audio_s": 4.83,
+      "decode_s": 0.74,
+      "rtf": 0.153,
+      "text": "Yet these thoughts affected Hester Prinn less with hope than apprehension."
+    }
+  ]
+}

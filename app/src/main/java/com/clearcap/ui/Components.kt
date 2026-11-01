@@ -32,6 +32,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -93,6 +95,7 @@ fun RecordButton(recording: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(92.dp).background(ring.copy(alpha = 0.14f), CircleShape).padding(8.dp)
             .background(if (enabled) ring else t.muted.copy(alpha = 0.4f), CircleShape)
+            .semantics { contentDescription = if (recording) "Stop recording" else "Start recording" }
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

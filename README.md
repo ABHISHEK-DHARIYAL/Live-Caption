@@ -1,62 +1,71 @@
-# Clearcap
+# Clearcap: offline live captions for Android
 
-Android app (Kotlin, Jetpack Compose, minSdk 29) that shows live captions for any audio playing on the phone
-(videos, lectures, Meet/Zoom) or the microphone, and saves a transcript. Offline. No accounts, ads or analytics.
+Native Kotlin and Jetpack Compose app that turns speech into text **on the phone, with no internet, server or account**.
+It captions either the **microphone** or **other apps' audio** (Android playback capture), in **English, Hindi and Hinglish**,
+saves transcripts to a local database, and lets you edit, search, export and restore the original text.
 
-## Why it is built this way (measured)
-The previous app used Vosk small + a second language model + Whisper at the same time: words came out wrong
-and captions fell ~44 s behind. This one runs ONE light streaming model while you record, and the heavy model
-only after you stop.
+> **Status: complete source, not yet built or run on a device by its author.** The pure-logic module is compiled and tested
+> (152 tests pass). The Android layer type-checks against real Android and sherpa-onnx classes, but Gradle, Compose, Room
+> code generation, the APK and every on-device behaviour are **unverified until you build and test it**.
+> See [docs/VERIFICATION.md](docs/VERIFICATION.md) for exactly what was and was not run.
 
-Desktop benchmark (sherpa-onnx, 1 CPU core, int8, 35 s of test speech with clean / 1.5x-speed / noisy / low-bitrate
-variants; WER lower is better, RTF = processing time / audio time):
+## What it does
 
-| Engine | role | WER (clean .. worst) | RTF |
-|---|---|---|---|
-| Streaming Zipformer en-2023-06-26 | live (default) | 0.0% .. 2.6% | 0.10 |
-| Streaming Zipformer 20M | (rejected: too inaccurate) | 13% .. 27% | 0.05 |
-| Parakeet 110M | accurate pass (default) | 2.6% .. 5.2% | 0.05 |
-| Whisper tiny.en / base.en | (Whisper kept for Hindi) | 6.5% / 3.9% .. 12% | 0.17 / 0.27 |
-| Moonshine tiny | not used | 3.9% .. 5.2% | 0.05 |
+| Feature | Notes |
+|---|---|
+| English live captions | Streaming Zipformer: text appears as people speak |
+| Hindi, Hinglish, auto-detect | **Near-live**: Whisper decodes each phrase after a pause, so text arrives seconds late. No streaming model for these is available in the bundled engine |
+| Transcribe, never translate | Whisper task is fixed to "transcribe" |
+| System audio **or** microphone | Separate choices, never mixed |
+| Floating caption bar | Over other apps, draggable, size setting (needs "Display over other apps") |
+| History | Room database, search, rename, delete, edit, copy, share, export TXT / Markdown / JSON / SRT / timestamped text |
+| Versions | Original, Refined, My edit. The original recognizer text is always kept and restorable |
+| Vocabulary | Terms and "also written as" spellings (Devanagari or Roman), applied after recognition, reversible |
+| Recovery | Segments are saved as they finish; killed sessions are marked "Interrupted"; with audio storage on they can be transcribed again |
+| Models | Catalogue with sizes, SHA-256 and per-file size checks, resumable downloads, device-aware advice, delete |
 
-Caveats: tiny sample (3 clips), read speech, desktop CPU, not a phone. Vosk could not be benchmarked here.
-Decode-time dictionary biasing ("hotwords") ran at no speed cost but did not fix the one real error I could
-test (a very common word), so it is not included; dictionary words are corrected after decoding instead.
+## Requirements
 
-## Hard-audio test and what it changed (v1.1)
-A 3.5-minute sung, sped-up pop track was run through every engine (single core, whole file; the opening was
-checked against the real lyrics by eye, not scored; lyrics are not included here):
-
-| Engine | Opening verse | Notes |
-|---|---|---|
-| Streaming Zipformer (old live model) | badly wrong, garbled words | why live captions were weak |
-| Parakeet 110M | partly wrong | |
-| Parakeet 600M v2 | nearly right | best; speed ~4x real time on one core |
-| Whisper base | good, but adds "(upbeat music)" and skips words | |
-| Whisper tiny / Moonshine tiny | good start, then invented repeating phrases (18 / 22 repeats) | hallucination loops |
-
-So the default is now **Accurate live captions**: the speech detector cuts sentences and Parakeet 600M (English;
-or Whisper for Hindi) transcribes each one a few seconds after it is spoken. **Fast** (streaming Zipformer) stays
-as an option. Caveat: this was music, not speech, and not on a phone; real-phone speed is untested. If the phone
-cannot keep up the app shows a "behind" warning (pending audio over 5 s).
-
-## Pipeline
-capture (AudioPlaybackCapture and/or mic, averaged) -> boost-only auto-gain -> 100 ms chunks
--> ACCURATE (default): Silero VAD cuts sentences -> Parakeet 600M / 110M / Whisper decodes each, a few seconds late
-   FAST: streaming Zipformer, instant; then (optional) the accurate pass over the saved speech after Stop
--> noise gate + hallucination filter + dictionary corrector -> saved transcript.
-If anything fails the live text is kept.
-
-## Screens
-Home (record, source: system / mic / both, live captions) - History (search) - Transcript (edit, copy, share,
-AI notes) - Dictionary (add, bulk import, edit; editing a transcript learns new words) - Settings (model cards).
+- Android **10 (API 29)** or newer. CPU **arm64-v8a** (priority) or **armeabi-v7a**. x86 / x86_64 devices and emulators are **not** supported by the bundled speech library.
+- Free storage: from about 1 MB (detector only) up to about 1.1 GB free while installing the largest model (Whisper small: 640 MB download, 375 MB installed); see [docs/DEVICES.md](docs/DEVICES.md).
+- RAM guidance (estimates, not measurements): under 3 GB lightweight models; 3 to 5.5 GB base; above that small.
 
 ## Build
-GitHub: push this folder, Actions -> "Build APK" -> download the artifact (see GITHUB_ACTIONS_SETUP.md).
-Local: open in Android Studio. First launch: Settings -> Download "Parakeet 600M" (482 MB) and "Speech detector" (1 MB)
-(Fast mode instead needs "Live English", 310 MB). Downloads happen only when you tap Download and resume if interrupted.
 
-## Not verified
-Nothing Android-side has been compiled or run from my environment (no Android SDK). The pure-Kotlin logic
-(text, dictionary, filters, auto-gain) has 46 passing unit tests. Capture code is reused from the earlier app
-that ran on a phone. Live captions are English only; Hindi works in the accurate pass (Whisper).
+See [docs/BUILD.md](docs/BUILD.md). Short version, with JDK 17 and Android Studio (Ladybug or newer):
+
+```
+./gradlew :core:test :app:testDebugUnitTest   # unit tests
+./gradlew :app:assembleDebug                  # app/build/outputs/apk/debug/app-debug.apk
+```
+
+GitHub Actions (`.github/workflows/build.yml`) runs the same commands; failing tests fail the run.
+
+## First run
+
+1. Open **Models**, download what your language needs (English: Zipformer + speech detector, about 311 MB). Nothing downloads before you tap.
+2. Pick a source on **Home**, tap the button, accept the prompts.
+3. Optional: Settings > Audio storage if you want crash recovery and re-checking.
+
+## Layout
+
+```
+core/   pure Kotlin: text pipeline, audio maths (resampler, gain, spool), reconciler, aligner, exporter, WER/CER, model catalogue, router
+app/    Android: capture, sherpa-onnx engines, model manager, Room, service, overlay, Compose UI
+docs/   BUILD, ARCHITECTURE, DEVICES, EVALUATION, TROUBLESHOOTING, VERIFICATION, eval data
+tools/  desktop evaluation harness, optional dev scripts
+```
+
+## Known limitations (honest list)
+
+- Not every app allows system-audio capture. Protected/DRM media, many calls and some meeting apps are silent to this app. It reports "no audio heard" rather than invent text.
+- Fast playback lowers accuracy (English test: 0% at 1x, about 4% at 1.5x, about 16% at 2x for the live model). Prefer 1.5x or slower.
+- Hindi and Hinglish accuracy has **not been measured**. Whisper may write English words inside Hindi sentences in Devanagari or Roman letters.
+- The second pass is **off by default**: on the only clips measured, it did not beat the live English model.
+- Whisper's decoder cannot be given a vocabulary prompt through the bundled API, so vocabulary is applied after recognition.
+- A running native decode cannot be interrupted; cancel and skip act between speech segments.
+- CPU only. No GPU/NNAPI/NPU path has been verified, so none is enabled.
+- UI text is English only.
+- The earlier cloud "AI notes" feature was removed to honour "never upload transcripts".
+
+Licences and attributions: [ATTRIBUTION.md](ATTRIBUTION.md), [NOTICE](NOTICE). Privacy: [PRIVACY.md](PRIVACY.md).

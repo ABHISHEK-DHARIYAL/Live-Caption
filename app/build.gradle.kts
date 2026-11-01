@@ -1,6 +1,7 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -12,13 +13,13 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 2
-        versionName = "1.1"
-        // Real phones are arm; dropping x86 keeps the APK small (sherpa-onnx ships large native libraries).
+        versionName = "2.0.0"
+        // The bundled sherpa-onnx library has native code for these CPU types only (verified from the AAR).
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Fixed signing key: a new random debug key on every CI run would stop Android installing an update
-    // over the previous build ("App not installed as package conflicts with an existing package").
+    // Fixed debug key so CI builds update each other instead of failing with "package conflicts".
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -35,8 +36,11 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
-    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    composeOptions { kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get() }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -46,27 +50,44 @@ android {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
         jniLibs.useLegacyPackaging = true
     }
+    testOptions { unitTests.isReturnDefaultValues = true }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06") // encrypts the Gemini key
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
-    implementation("androidx.activity:activity-compose:1.9.1")
+    implementation(project(":core"))
 
-    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-core")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.navigation.compose)
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
+    debugImplementation(libs.androidx.compose.ui.tooling)
 
-    // sherpa-onnx: streaming Zipformer (live), Parakeet / Whisper (accurate), Silero VAD.
-    // Prebuilt AAR from https://github.com/k2-fsa/sherpa-onnx/releases (v1.13.8, arm only).
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Transcript history (Room) and preferences (DataStore); model downloads run in WorkManager.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // sherpa-onnx 1.13.8 prebuilt AAR (arm64-v8a, armeabi-v7a): streaming Zipformer, Parakeet, Whisper, Silero VAD.
     implementation(files("libs/sherpa-onnx-1.13.8.aar"))
-    implementation("org.apache.commons:commons-compress:1.26.2") // unpack the .tar.bz2 model downloads
+    implementation(libs.commons.compress) // unpack the .tar.bz2 model archives
 
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.kotlinx.coroutines.core)
 }

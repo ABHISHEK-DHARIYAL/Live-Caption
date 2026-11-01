@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Clearcap"
-include(":app")
+include(":core", ":app")

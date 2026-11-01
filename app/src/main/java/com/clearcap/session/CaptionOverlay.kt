@@ -10,19 +10,23 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 
-/** Floating caption bar over other apps (VoiceFlow-style dark pill). Drag it up or down to move it. */
-class CaptionOverlay(ctx: Context) {
+/**
+ * Floating caption bar over other apps. Drag it up or down; the position is remembered via [onMoved].
+ * It is not focusable and does not read or change the app underneath. Needs the user's "display over other apps" permission.
+ */
+class CaptionOverlay(ctx: Context, textSp: Int, bottomPx: Int, private val onMoved: (Int) -> Unit) {
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var shown = false
 
     private val tv = TextView(ctx).apply {
         setTextColor(Color.parseColor("#FAFAFA"))
-        textSize = 18f
+        textSize = textSp.toFloat()
         gravity = Gravity.CENTER
-        maxLines = 3
+        maxLines = 4
         setPadding(36, 22, 36, 22)
         background = GradientDrawable().apply { setColor(Color.parseColor("#E6111113")); cornerRadius = 28f }
         visibility = View.GONE
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO // the app screen is the accessible copy; avoid announcing every update twice
     }
 
     private val lp = WindowManager.LayoutParams(
@@ -33,7 +37,7 @@ class CaptionOverlay(ctx: Context) {
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        y = 180
+        y = bottomPx
     }
 
     init {
@@ -46,6 +50,7 @@ class CaptionOverlay(ctx: Context) {
                     lp.y = (startPos - (e.rawY - startY)).toInt().coerceAtLeast(0)
                     if (shown) wm.updateViewLayout(tv, lp)
                 }
+                MotionEvent.ACTION_UP -> onMoved(lp.y)
             }
             true
         }
@@ -62,8 +67,8 @@ class CaptionOverlay(ctx: Context) {
         shown = false
     }
 
-    fun set(text: String, warn: Boolean) {
-        val t = if (warn) "\u26A0 Falling behind\n$text".trim() else text
+    fun set(text: String, warning: String?) {
+        val t = listOfNotNull(warning, text.takeIf { it.isNotBlank() }).joinToString("\n")
         tv.text = t
         tv.visibility = if (t.isBlank()) View.GONE else View.VISIBLE
     }

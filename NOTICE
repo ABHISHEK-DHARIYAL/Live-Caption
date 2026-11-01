@@ -5,7 +5,7 @@ the compact settings layout follow VoiceFlow (MIT, Copyright (c) 2024 VoiceFlow)
 (MIT, Copyright (c) 2024 OpenWhispr Team). The Dictionary screen follows OpenWhispr's.
 
 Logic ported to Kotlin from OpenWhispr (MIT): dictionary bulk import, the dictionary echo filter and the
-correction learner (app/src/main/java/com/clearcap/text/WordBank.kt). Tests reuse OpenWhispr's own cases.
+correction learner (core/src/main/kotlin/com/clearcap/text/WordBank.kt). Tests reuse OpenWhispr's own cases.
 
 Runtime libraries and models (downloaded by the user, not bundled):
 - sherpa-onnx (Apache-2.0), k2-fsa.
@@ -13,3 +13,12 @@ Runtime libraries and models (downloaded by the user, not bundled):
 - NVIDIA Parakeet 110M (CC-BY-4.0).
 - OpenAI Whisper (MIT).
 - Silero VAD (MIT).
+
+Version 2.0 additions
+---------------------
+Architecture and plan: see ATTRIBUTION.md for file-level provenance and licences.
+- VoiceFlow (MIT): recovery, spooling, job and export designs informed this version (no code copied).
+- faster-whisper (MIT, SYSTRAN): behavioural reference only; not used at runtime.
+- Apache Commons Compress (Apache-2.0), AndroidX/Compose/Room/DataStore/WorkManager (Apache-2.0).
+- The cloud "AI notes" feature of version 1 was removed so that no transcript is ever sent off the device.
+- ONNX Runtime inside the sherpa-onnx AAR is MIT licensed.

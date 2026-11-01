@@ -1,0 +1,33 @@
+{
+  "family": "zipformer",
+  "model": "sherpa-onnx-streaming-zipformer-en-2023-06-26",
+  "lang": "auto",
+  "threads": 1,
+  "load_s": 2.52,
+  "clips": [
+    {
+      "clip": "en_0",
+      "audio_s": 6.62,
+      "first_text_at_audio_s": 1.2,
+      "decode_s": 0.52,
+      "rtf": 0.079,
+      "text": "AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BROTHELS"
+    },
+    {
+      "clip": "en_1",
+      "audio_s": 16.71,
+      "first_text_at_audio_s": 1.2,
+      "decode_s": 1.06,
+      "rtf": 0.063,
+      "text": "GOD AS A DIRECT CONSEQUENCE OF THE SIN WHICH MAN THUS PUNISHED HAD GIVEN HER A LOVELY CHILD WHOSE PLACE WAS ON THAT SAME DISHONOURED BOSOM TO CONNECT HER PARENT FOR EVER WITH THE RACE AND DESCENT OF MORTALS AND TO BE FINALLY A BLESSED SOUL IN HEAVEN"
+    },
+    {
+      "clip": "en_8k",
+      "audio_s": 4.83,
+      "first_text_at_audio_s": 1.2,
+      "decode_s": 0.37,
+      "rtf": 0.076,
+      "text": "YET THESE THOUGHTS AFFECTED HESTER PRYNNE LESS WITH HOPE THAN APPREHENSION"
+    }
+  ]
+}

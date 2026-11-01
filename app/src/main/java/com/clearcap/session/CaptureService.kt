@@ -10,38 +10,46 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
-import androidx.core.content.ContextCompat
-import androidx.core.content.IntentCompat
 import com.clearcap.MainActivity
 import com.clearcap.R
 import com.clearcap.app
-import com.clearcap.capture.AudioCaptureError
-import com.clearcap.capture.AudioCaptureManager
-import com.clearcap.data.Source
+import com.clearcap.capture.CaptureKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
-/** Foreground service that owns the capture, the recording session and the caption overlay. */
+/**
+ * Foreground service that owns one recording: the capture, the session controller, the MediaProjection and the caption bar.
+ * Started only by a user tap in the app. It is NOT sticky: if Android kills it the recording ends, what was saved is kept,
+ * and the next app start marks the session as interrupted (see [RecoverySweep]).
+ */
 class CaptureService : Service() {
     private val main = Handler(Looper.getMainLooper())
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val ui = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var capture: AudioCaptureManager? = null
-    private var session: RecordingSession? = null
+    private val job = SupervisorJob()
+    private val scope = CoroutineScope(job + Dispatchers.Default)
+    private val ui = CoroutineScope(job + Dispatchers.Main)
+    private var controller: SessionController? = null
+    private var projection: MediaProjection? = null
     private var overlay: CaptionOverlay? = null
     private var overlayJob: Job? = null
-    private var stopping = false
+    private var started = false
+    private var stopRequested = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,89 +57,95 @@ class CaptureService : Service() {
         when (intent?.action) {
             ACTION_START -> start(intent)
             ACTION_STOP -> stopSession()
-            ACTION_SKIP_ACCURATE -> session?.cancelAccurate()
-            else -> if (session == null) stopSelf()
+            ACTION_PAUSE -> controller?.pause()
+            ACTION_RESUME -> controller?.resume()
+            ACTION_SKIP_REFINE -> controller?.skipRefinement()
+            else -> if (!started) stopSelf()
         }
         return START_NOT_STICKY
     }
 
     private fun start(i: Intent) {
-        if (session != null) return
-        val cfg = app.settings.value
-        val source = Source.values().firstOrNull { it.name == i.getStringExtra(EXTRA_SOURCE) } ?: cfg.source
-        val wantsMic = source != Source.SYSTEM
-        val micOk = has(Manifest.permission.RECORD_AUDIO)
-        startForegroundCompat(source, micOk)
-
-        val cap = AudioCaptureManager(this)
-        capture = cap
-        SessionBus.reset(running = true)
-
-        if (source != Source.MIC) {
-            val data = IntentCompat.getParcelableExtra(i, EXTRA_DATA, Intent::class.java)
-            if (data == null) return fail("Audio capture permission was not granted")
-            cap.attachProjection(i.getIntExtra(EXTRA_CODE, 0), data) { main.post { stopSession() } }
+        if (started) return
+        started = true
+        val kind = CaptureKind.values().firstOrNull { it.name == i.getStringExtra(EXTRA_KIND) } ?: CaptureKind.MICROPHONE
+        try {
+            startForegroundTyped(kind)
+        } catch (e: Exception) {
+            return fail("Android did not allow a recording service to start: ${e.message ?: e.javaClass.simpleName}")
         }
+        SessionBus.reset(Phase.STARTING)
+        val code = i.getIntExtra(EXTRA_CODE, 0)
+        @Suppress("DEPRECATION")
+        val data: Intent? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(EXTRA_DATA, Intent::class.java) else i.getParcelableExtra(EXTRA_DATA)
+
         scope.launch {
-            cap.errors.collect { e -> SessionBus.update { it.copy(error = describe(e)) } }
+            val cfg = app.settings.current()
+            var proj: MediaProjection? = null
+            if (kind == CaptureKind.SYSTEM) {
+                if (data == null) return@launch fail("System-audio capture was not approved. Tap Start and accept the prompt.")
+                proj = try {
+                    getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, data)
+                } catch (e: SecurityException) { null }
+                if (proj == null) return@launch fail("Android refused the audio-capture permission. Tap Start and accept the prompt again.")
+                // Required before capture on Android 14+. Also fires if the user ends sharing from the system UI.
+                proj.registerCallback(object : MediaProjection.Callback() {
+                    override fun onStop() { main.post { SessionBus.update { it.copy(status = "Android ended audio capture.") }; stopSession() } }
+                }, main)
+                projection = proj
+            }
+            val c = SessionController(this@CaptureService, app.repo, app.models, scope, ::updateNotification) { main.post { finishService() } }
+            controller = c
+            val err = c.start(kind, proj, cfg)
+            if (err != null) return@launch fail(err)
+            withContext(Dispatchers.Main) {
+                updateNotification("Listening...")
+                if (cfg.overlay) showOverlay(cfg.overlayTextSp, cfg.overlayBottomPx)
+            }
         }
-        val s = RecordingSession(app, cap, cfg, ::updateNotification)
-        val err = s.start(scope, includeSystem = source != Source.MIC, includeMic = wantsMic)
-        if (err != null) {
-            // "" means capture already reported its own reason through the error flow.
-            main.postDelayed({ fail(err.ifEmpty { SessionBus.state.value.error ?: "Could not start capturing audio" }) }, if (err.isEmpty()) 150 else 0)
-            return
-        }
-        session = s
-        updateNotification("Listening...")
-        if (cfg.overlay) showOverlay()
-    }
-
-    private fun describe(e: AudioCaptureError): String = when (e) {
-        AudioCaptureError.PermissionDenied -> "Permission needed: allow microphone access and audio capture."
-        AudioCaptureError.PlaybackCaptureUnavailable -> "This Android version cannot capture system audio."
-        AudioCaptureError.TargetAppBlocksCapture -> "That app blocks audio capture (protected video). Try the microphone."
-        AudioCaptureError.StreamInterrupted -> "Audio capture was interrupted."
-        AudioCaptureError.ConcurrentCaptureUnsupported -> "This phone cannot record system audio and the microphone together. Pick one."
-        is AudioCaptureError.Unknown -> e.message
-    }
-
-    private fun fail(msg: String) {
-        SessionBus.update { it.copy(running = false, error = msg) }
-        capture?.releaseProjection()
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     private fun stopSession() {
-        val s = session ?: return
-        if (stopping) { s.cancelAccurate(); return }
-        stopping = true
+        val c = controller
+        if (c == null) { finishService(); return }
+        if (stopRequested) { c.skipRefinement(); return } // a second tap skips the second pass
+        stopRequested = true
         hideOverlay()
         updateNotification("Saving...")
-        scope.launch {
-            runCatching { s.stop() }
-            runCatching { capture?.releaseProjection() }
-            main.post {
-                session = null
-                ServiceCompat.stopForeground(this@CaptureService, ServiceCompat.STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
-        }
+        scope.launch { runCatching { c.stop() } }
     }
 
-    private fun showOverlay() {
+    private fun finishService() {
+        hideOverlay()
+        runCatching { projection?.stop() }
+        projection = null
+        controller = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun fail(msg: String) {
+        SessionBus.update { it.copy(phase = Phase.IDLE, error = msg) }
+        main.post { finishService() }
+    }
+
+    // ---- caption bar ----
+
+    private fun showOverlay(textSp: Int, bottomPx: Int) {
         if (!Settings.canDrawOverlays(this)) {
-            SessionBus.update { it.copy(status = "Allow \"display over other apps\" in Settings to see the floating captions.") }
+            SessionBus.update { it.copy(status = "Allow \"Display over other apps\" in Settings to see the floating captions.") }
             return
         }
-        val o = CaptionOverlay(this).also { it.show() }
+        val o = CaptionOverlay(this, textSp, bottomPx) { y -> app.settings.update { it.copy(overlayBottomPx = y) } }.also { it.show() }
         overlay = o
-        overlayJob = ui.launch {
-            SessionBus.state.collect { st ->
-                o.set(st.partial.ifBlank { st.lines.lastOrNull().orEmpty() }, st.behindMs > 5_000)
+        overlayJob = SessionBus.state.onEach { st ->
+            val warn = when {
+                st.phase == Phase.PAUSED -> "Paused"
+                st.behindMs > 5_000 -> "Falling behind"
+                else -> null
             }
-        }
+            o.set(st.partial.ifBlank { st.lines.lastOrNull().orEmpty() }, warn)
+        }.launchIn(ui)
     }
 
     private fun hideOverlay() {
@@ -140,42 +154,48 @@ class CaptureService : Service() {
         overlay = null
     }
 
-    private fun startForegroundCompat(source: Source, micOk: Boolean) {
-        var type = 0
-        if (Build.VERSION.SDK_INT >= 29 && source != Source.MIC) type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        if (Build.VERSION.SDK_INT >= 30 && source != Source.SYSTEM && micOk) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        if (Build.VERSION.SDK_INT >= 30 && source == Source.MIC && !micOk) type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        ServiceCompat.startForeground(this, NOTIF_ID, notification("Starting..."), type)
+    // ---- notification ----
+
+    private fun startForegroundTyped(kind: CaptureKind) {
+        // API 29 has no separate microphone type, so it uses the types declared in the manifest.
+        val type = when {
+            Build.VERSION.SDK_INT < 30 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST
+            kind == CaptureKind.SYSTEM -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+        startForeground(NOTIF_ID, notification("Starting..."), type)
     }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification(text))
+        runCatching { getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification(text)) }
     }
 
     private fun notification(text: String): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Captioning", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val stop = PendingIntent.getService(
-            this, 1, Intent(this, CaptureService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
-        )
-        return NotificationCompat.Builder(this, CHANNEL)
+        fun action(label: String, act: String): Notification.Action {
+            val pi = PendingIntent.getService(this, act.hashCode(), Intent(this, CaptureService::class.java).setAction(act), PendingIntent.FLAG_IMMUTABLE)
+            return Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_notification), label, pi).build()
+        }
+        val paused = controller?.paused == true
+        return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Clearcap")
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
-            .addAction(0, "Stop", stop)
+            .addAction(action(if (paused) "Resume" else "Pause", if (paused) ACTION_RESUME else ACTION_PAUSE))
+            .addAction(action("Stop", ACTION_STOP))
             .build()
     }
 
-    private fun has(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
-
     override fun onDestroy() {
         hideOverlay()
+        // Android is ending the service without a normal Stop: keep what was captured and mark the session interrupted.
+        controller?.let { c -> runBlocking(Dispatchers.IO) { withTimeoutOrNull(2_500) { c.abort() } } }
+        runCatching { projection?.stop() }
         ui.cancel()
-        session?.abort()
-        session = null
         scope.cancel()
         super.onDestroy()
     }
@@ -183,21 +203,22 @@ class CaptureService : Service() {
     companion object {
         const val ACTION_START = "com.clearcap.START"
         const val ACTION_STOP = "com.clearcap.STOP"
-        const val ACTION_SKIP_ACCURATE = "com.clearcap.SKIP_ACCURATE"
-        const val EXTRA_SOURCE = "source"
+        const val ACTION_PAUSE = "com.clearcap.PAUSE"
+        const val ACTION_RESUME = "com.clearcap.RESUME"
+        const val ACTION_SKIP_REFINE = "com.clearcap.SKIP_REFINE"
+        const val EXTRA_KIND = "kind"
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CHANNEL = "capture"
         private const val NOTIF_ID = 7
 
-        fun start(ctx: Context, source: Source, code: Int = 0, data: Intent? = null) {
-            val i = Intent(ctx, CaptureService::class.java).setAction(ACTION_START)
-                .putExtra(EXTRA_SOURCE, source.name).putExtra(EXTRA_CODE, code)
+        fun start(ctx: Context, kind: CaptureKind, code: Int = 0, data: Intent? = null) {
+            val i = Intent(ctx, CaptureService::class.java).setAction(ACTION_START).putExtra(EXTRA_KIND, kind.name).putExtra(EXTRA_CODE, code)
             if (data != null) i.putExtra(EXTRA_DATA, data)
-            ContextCompat.startForegroundService(ctx, i)
+            ctx.startForegroundService(i)
         }
 
-        fun stop(ctx: Context) = ctx.startService(Intent(ctx, CaptureService::class.java).setAction(ACTION_STOP))
-        fun skipAccurate(ctx: Context) = ctx.startService(Intent(ctx, CaptureService::class.java).setAction(ACTION_SKIP_ACCURATE))
+        fun send(ctx: Context, action: String) { ctx.startService(Intent(ctx, CaptureService::class.java).setAction(action)) }
+        fun hasMic(ctx: Context) = ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     }
 }

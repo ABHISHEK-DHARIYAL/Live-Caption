@@ -1,0 +1,30 @@
+{
+  "family": "nemo",
+  "model": "sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8",
+  "lang": "auto",
+  "threads": 1,
+  "load_s": 1.03,
+  "clips": [
+    {
+      "clip": "en_0",
+      "audio_s": 6.62,
+      "decode_s": 0.25,
+      "rtf": 0.037,
+      "text": "After early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels"
+    },
+    {
+      "clip": "en_1",
+      "audio_s": 16.71,
+      "decode_s": 0.65,
+      "rtf": 0.039,
+      "text": "God, as a direct consequence of the sin which man thus punished, had given her a lovely child, whose place was on that same dishonored bosom to connect her parent for ever with the race and descent of mortals, and to be finally a blessed soul in heaven."
+    },
+    {
+      "clip": "en_8k",
+      "audio_s": 4.83,
+      "decode_s": 0.17,
+      "rtf": 0.036,
+      "text": "Yet these thoughts affected Hester Prin less with hope than apprehension"
+    }
+  ]
+}
