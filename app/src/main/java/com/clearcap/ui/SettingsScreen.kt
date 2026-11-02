@@ -84,7 +84,7 @@ fun SettingsScreen(nav: NavController) {
                     style = MaterialTheme.typography.bodySmall, color = t.muted, modifier = Modifier.padding(vertical = 6.dp),
                 )
                 OutlinedButton(onClick = {
-                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATIONS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     runCatching { ctx.startActivity(intent) }.onFailure { runCatching { ctx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
                 }) { Text("Battery settings") }
             }

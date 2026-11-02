@@ -16,9 +16,15 @@ Honest split between what was actually run and what still needs you. Date of wor
 Two defects were found and fixed by running the tests (file-name sanitiser; Devanagari share metric ignoring vowel signs).
 The type check found three more (nullability, a cross-module smart cast, annotation form), also fixed.
 
+## First real CI run (GitHub Actions, supplied by the user)
+- `:core:test` under real Gradle/JUnit: **all tests listed as PASSED, none failed**. (Previously only run through my shim.)
+- `:app:kspDebugKotlin` (Room code generation) completed. `:app:checkDebugAarMetadata`, resource merge and manifest merge passed.
+- `:app:compileDebugKotlin` **failed on one error**: `ACTION_IGNORE_BATTERY_OPTIMIZATIONS_SETTINGS` in `SettingsScreen.kt` (wrong constant name; the real one is `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`). Fixed, and every other platform constant in the UI files was then checked against `android.jar` (19 checked, none unknown).
+- The log showed only that one compile error, which suggests the rest of the Compose code compiled, but the build stopped there, so `:app:testDebugUnitTest` and `:app:assembleDebug` had **not** run yet.
+
 ## NOT run (needs your build and device)
-- Any Gradle task: sync, `:core:test`, `:app:testDebugUnitTest`, `:app:assembleDebug`. **No APK was built.**
-- Compose UI code (all of `app/.../ui/`) has never been compiled. Room annotation processing, DataStore, WorkManager and Navigation were checked only against my own stubs.
+- A successful `:app:assembleDebug`. **No APK has been built yet** (the first CI run stopped at the error above, now fixed).
+- Compose UI code compiled up to the one error above in CI; a full clean compile is still to be confirmed.
 - `androidTest` (Room behaviour tests) never run.
 - Every on-device behaviour: microphone capture, AudioPlaybackCapture and MediaProjection consent, foreground-service types on Android 10 to 15, overlay, notifications, pause/resume, interruption handling, process-death recovery, model download over redirects with Range resume, WorkManager scheduling, resampler performance, AudioRecord format negotiation on real hardware.
 - Hindi and Hinglish accuracy; phone latency, memory, CPU, battery, thermal; 60-minute stability; multi-manufacturer behaviour.

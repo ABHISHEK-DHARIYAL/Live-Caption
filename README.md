@@ -4,9 +4,9 @@ Native Kotlin and Jetpack Compose app that turns speech into text **on the phone
 It captions either the **microphone** or **other apps' audio** (Android playback capture), in **English, Hindi and Hinglish**,
 saves transcripts to a local database, and lets you edit, search, export and restore the original text.
 
-> **Status: complete source, not yet built or run on a device by its author.** The pure-logic module is compiled and tested
-> (152 tests pass). The Android layer type-checks against real Android and sherpa-onnx classes, but Gradle, Compose, Room
-> code generation, the APK and every on-device behaviour are **unverified until you build and test it**.
+> **Status: complete source; the APK build is not yet confirmed and nothing has run on a device.** The `core` tests pass under
+> real Gradle in CI. The first CI run of the Android module stopped at one wrong constant name (fixed in this version). A clean
+> `assembleDebug` and every on-device behaviour are **unverified until you build and test it**.
 > See [docs/VERIFICATION.md](docs/VERIFICATION.md) for exactly what was and was not run.
 
 ## What it does
