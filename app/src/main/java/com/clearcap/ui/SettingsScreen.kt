@@ -46,7 +46,7 @@ fun SettingsScreen(nav: NavController) {
 
             Panel {
                 Text("Floating captions", style = MaterialTheme.typography.titleMedium)
-                SwitchRow("Show captions over other apps", "Needs \"Display over other apps\". Drag the bar up or down to move it.", cfg.overlay) { v -> app.settings.update { it.copy(overlay = v) } }
+                SwitchRow("Show captions over other apps", "Needs \"Display over other apps\". Drag the bar up or down to move it; use – to minimise or ✕ to close it.", cfg.overlay) { v -> app.settings.update { it.copy(overlay = v) } }
                 Text("Text size: ${sp.toInt()} sp", style = MaterialTheme.typography.bodyMedium)
                 Slider(value = sp, onValueChange = { sp = it }, valueRange = 12f..34f, onValueChangeFinished = { app.settings.update { it.copy(overlayTextSp = sp.toInt()) } })
                 if (!Settings.canDrawOverlays(ctx)) TextButton(onClick = {

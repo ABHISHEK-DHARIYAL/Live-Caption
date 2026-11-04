@@ -136,7 +136,11 @@ class CaptureService : Service() {
             SessionBus.update { it.copy(status = "Allow \"Display over other apps\" in Settings to see the floating captions.") }
             return
         }
-        val o = CaptionOverlay(this, textSp, bottomPx) { y -> app.settings.update { it.copy(overlayBottomPx = y) } }.also { it.show() }
+        val o = CaptionOverlay(
+            this, textSp, bottomPx,
+            onMoved = { y -> app.settings.update { it.copy(overlayBottomPx = y) } },
+            onClose = { hideOverlay() }, // closes the floating bar only; recording/transcription keeps running
+        ).also { it.show() }
         overlay = o
         overlayJob = SessionBus.state.onEach { st ->
             val warn = when {
