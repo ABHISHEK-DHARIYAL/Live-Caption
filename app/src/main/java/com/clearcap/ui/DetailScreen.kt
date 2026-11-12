@@ -1,6 +1,11 @@
 package com.clearcap.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,7 +21,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.clearcap.app
+import com.clearcap.capture.CaptureKind
 import com.clearcap.data.sourceLabel
+import com.clearcap.session.CaptureService
 import com.clearcap.session.SessionBus
 import com.clearcap.transcript.ExportFormat
 import com.clearcap.transcript.TextVersion
@@ -26,7 +33,7 @@ import com.clearcap.work.Retranscribe
 import kotlinx.coroutines.launch
 
 @Composable
-fun DetailScreen(id: String, onBack: () -> Unit, onModels: () -> Unit) {
+fun DetailScreen(id: String, onBack: () -> Unit, onModels: () -> Unit, onRecording: () -> Unit = {}) {
     val ctx = LocalContext.current
     val app = ctx.app
     val t = LocalTokens.current
@@ -41,6 +48,33 @@ fun DetailScreen(id: String, onBack: () -> Unit, onModels: () -> Unit) {
     var showRaw by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<String?>(null) }
     var exportFormat by remember { mutableStateOf<ExportFormat?>(null) }
+
+    // ---- continue recording into this transcript ----
+    val cfg by app.settings.state.collectAsState()
+    val kindFor = { src: String? -> if (src == CaptureKind.SYSTEM.name) CaptureKind.SYSTEM else if (src == CaptureKind.MICROPHONE.name) CaptureKind.MICROPHONE else cfg.source }
+    var pendingKind by remember { mutableStateOf(CaptureKind.MICROPHONE) }
+    val projection = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val data = r.data
+        if (r.resultCode == Activity.RESULT_OK && data != null) { CaptureService.start(ctx, CaptureKind.SYSTEM, r.resultCode, data, resumeId = id); onRecording() }
+        else SessionBus.update { it.copy(error = "System-audio capture was not approved. Tap Continue recording and accept the prompt.") }
+    }
+    fun launchContinue() {
+        SessionBus.update { it.copy(error = null, status = null, savedId = null) }
+        if (pendingKind == CaptureKind.MICROPHONE) { CaptureService.start(ctx, CaptureKind.MICROPHONE, resumeId = id); onRecording() }
+        else projection.launch((ctx.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent())
+    }
+    val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (CaptureService.hasMic(ctx)) launchContinue()
+        else SessionBus.update { it.copy(error = "Microphone permission was denied. Captions need it, and Android requires it for system audio too.") }
+    }
+    fun continueRecording(kind: CaptureKind) {
+        pendingKind = kind
+        val need = buildList {
+            if (!CaptureService.hasMic(ctx)) add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (need.isNotEmpty()) perms.launch(need.toTypedArray()) else launchContinue()
+    }
 
     val s = session
     if (s == null) {
@@ -119,6 +153,11 @@ fun DetailScreen(id: String, onBack: () -> Unit, onModels: () -> Unit) {
                 OutlinedButton(onClick = { editing = false }) { Text("Cancel") }
             }
         } else {
+            Button(
+                onClick = { continueRecording(kindFor(s.source)) },
+                enabled = !live.busy && s.status != "RECORDING" && s.status != "FINALIZING",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            ) { Text("Continue recording") }
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { draft = shownText; editing = true }) { Text("Edit") }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(shownText)); Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show() }) { Text("Copy") }

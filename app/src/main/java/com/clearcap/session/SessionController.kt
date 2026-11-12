@@ -110,10 +110,17 @@ class SessionController(
     private var startNanos = 0L
     private var sessionRow: SessionEntity? = null
 
+    // Continuing an earlier recording: everything new is placed after [offsetMs] on that recording's timeline.
+    private var offsetMs = 0L
+    private var previousRow: SessionEntity? = null
+    private var spoolName: String? = null
+    private var refineAllowed = true
+    private var baseSegmentCount = 0
+
     val isRunning: Boolean get() = ::sessionId.isInitialized && !stopping
 
     /** Returns null when recording started, otherwise a message for the user. Nothing is recorded on failure. */
-    suspend fun start(kind: CaptureKind, projection: MediaProjection?, settings: AppSettings): String? {
+    suspend fun start(kind: CaptureKind, projection: MediaProjection?, settings: AppSettings, resumeId: String? = null): String? {
         this.kind = kind
         cfg = settings
         device = DeviceInfoReader.read(ctx)
@@ -136,17 +143,41 @@ class SessionController(
             return e.message
         }
 
-        sessionId = UUID.randomUUID().toString()
-        startedAt = System.currentTimeMillis()
-        val audioName = if (AudioRetention.spoolEnabled(cfg.audioMode)) "$sessionId.pcm" else null
-        spool = audioName?.let { PcmSpoolWriter(File(repo.audioDir, it)) }
-        val row = SessionEntity(
-            id = sessionId, title = "Recording " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(startedAt)),
-            startedAt = startedAt, endedAt = null, durationMs = 0, status = SessionStatus.RECORDING.name, source = kind.name,
-            languageMode = cfg.language.code, detectedLanguage = null, liveMode = route.mode.name, liveModelId = live.id, refineModelId = null,
-            activeVersion = TextVersion.LIVE.name, editedText = null, behindMs = 0, droppedMs = 0, audioFile = audioName, notes = null,
-            statusNote = null, imported = false,
-        )
+        val prev = resumeId?.let { repo.getSession(it) }
+        if (resumeId != null && (prev == null || prev.status == SessionStatus.RECORDING.name || prev.status == SessionStatus.FINALIZING.name)) {
+            runCatching { recognizer?.close() }; recognizer = null; runCatching { collector?.close() }; worker.shutdown()
+            return if (prev == null) "That recording is no longer available." else "That recording is still being saved. Try again in a moment."
+        }
+        val row: SessionEntity
+        if (prev != null) {
+            previousRow = prev
+            sessionId = prev.id
+            startedAt = prev.startedAt
+            val old = repo.segmentList(prev.id)
+            reconciler.seed(old)
+            baseSegmentCount = old.size
+            val existingAudio = repo.audioFile(prev)
+            val audioMs = existingAudio?.let { PcmSpool.durationMs(it) } ?: 0L
+            offsetMs = maxOf(prev.durationMs, old.maxOfOrNull { it.endMs } ?: 0L, audioMs)
+            // Audio is appended only when the saved file already matches the transcript timeline, so a second pass stays aligned.
+            val continuous = existingAudio != null && AudioRetention.spoolEnabled(cfg.audioMode) && kotlin.math.abs(audioMs - offsetMs) <= 2_000L
+            spoolName = if (continuous) prev.audioFile else null
+            refineAllowed = continuous
+            spool = spoolName?.let { PcmSpoolWriter(File(repo.audioDir, it)) }
+            row = prev.copy(endedAt = null, status = SessionStatus.RECORDING.name, liveMode = route.mode.name, liveModelId = live.id, statusNote = null)
+        } else {
+            sessionId = UUID.randomUUID().toString()
+            startedAt = System.currentTimeMillis()
+            spoolName = if (AudioRetention.spoolEnabled(cfg.audioMode)) "$sessionId.pcm" else null
+            spool = spoolName?.let { PcmSpoolWriter(File(repo.audioDir, it)) }
+            row = SessionEntity(
+                id = sessionId, title = "Recording " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(startedAt)),
+                startedAt = startedAt, endedAt = null, durationMs = 0, status = SessionStatus.RECORDING.name, source = kind.name,
+                languageMode = cfg.language.code, detectedLanguage = null, liveMode = route.mode.name, liveModelId = live.id, refineModelId = null,
+                activeVersion = TextVersion.LIVE.name, editedText = null, behindMs = 0, droppedMs = 0, audioFile = spoolName, notes = null,
+                statusNote = null, imported = false,
+            )
+        }
         sessionRow = row
         repo.upsertSession(row)
 
@@ -243,7 +274,7 @@ class SessionController(
                 val clean = pipeline.process(e.raw, e.endMs - e.startMs)
                 if (clean.isEmpty()) { SessionBus.update { it.copy(partial = "") }; return }
                 e.language?.let { languages.merge(it, 1, Int::plus) }
-                val seg = reconciler.onFinal(clean, e.startMs, e.endMs, e.language, e.raw)
+                val seg = reconciler.onFinal(clean, e.startMs + offsetMs, e.endMs + offsetMs, e.language, e.raw)
                 if (seg != null) repo.upsertSegment(sessionId, seg)
                 val lines = reconciler.segments.takeLast(MAX_LINES).map { it.liveText }
                 SessionBus.update { it.copy(partial = "", lines = lines) }
@@ -263,7 +294,7 @@ class SessionController(
                 val msg = silenceNotice(st)
                 SessionBus.update {
                     it.copy(
-                        level = peak, elapsedMs = st.capturedMs, behindMs = behind, droppedMs = droppedMs.get(),
+                        level = peak, elapsedMs = offsetMs + st.capturedMs, behindMs = behind, droppedMs = droppedMs.get(),
                         listening = recognizer?.busy == true, status = msg ?: it.status.takeIf { s -> s?.startsWith("Paused") == true },
                         diagnostics = snapshot(st),
                     )
@@ -273,7 +304,7 @@ class SessionController(
                 if (now - lastSave > 5_000) {
                     lastSave = now
                     sessionRow?.let { r ->
-                        sessionRow = r.copy(durationMs = st.capturedMs, behindMs = behind, droppedMs = droppedMs.get())
+                        sessionRow = r.copy(durationMs = offsetMs + st.capturedMs, behindMs = behind, droppedMs = droppedMs.get())
                         repo.upsertSession(sessionRow!!)
                     }
                     spool?.flush()
@@ -340,12 +371,13 @@ class SessionController(
         SessionBus.update { it.copy(phase = Phase.FINALIZING, partial = "", listening = false, error = failure, status = if (failure == null) "Saving..." else null) }
         capture?.stop()
         channel.close()
-        val finalMs = capture?.stats()?.capturedMs ?: 0L
+        val captureMs = capture?.stats()?.capturedMs ?: 0L
+        val finalMs = offsetMs + captureMs
         var ok = true
         try {
             job?.join()  // drain what is already captured
             withContext(dispatcher) {
-                recognizer?.finish(finalMs)?.forEach { handle(it) }
+                recognizer?.finish(captureMs)?.forEach { handle(it) }
                 collector?.flush()?.forEach { keepSpeech(it) }
             }
         } catch (t: Throwable) { ok = false; lastError = t.message ?: t.javaClass.simpleName }
@@ -355,15 +387,16 @@ class SessionController(
         recognizer = null
 
         val segs = reconciler.segments
-        var row = (sessionRow ?: repo.getSession(sessionId)!!).copy(
+        val current = sessionRow ?: repo.getSession(sessionId)!!
+        var row = current.copy(
             durationMs = finalMs, endedAt = System.currentTimeMillis(), droppedMs = droppedMs.get(),
-            status = SessionStatus.FINALIZING.name, detectedLanguage = languages.maxByOrNull { it.value }?.key,
+            status = SessionStatus.FINALIZING.name, detectedLanguage = languages.maxByOrNull { it.value }?.key ?: current.detectedLanguage,
             behindMs = worstLagMs, statusNote = failure,
         )
         repo.upsertSession(row)
 
         var refinedOk = failure == null && ok
-        if (failure == null) {
+        if (failure == null && refineAllowed) {
             val audio = spoolFile()
             val plan = refinementPlan(audioAvailable = audio != null || speechRam.isNotEmpty())
             val pm = plan.model
@@ -382,6 +415,13 @@ class SessionController(
             }
         }
         speechRam.clear()
+        if (previousRow?.editedText != null) {
+            val added = segs.filter { it.startMs >= offsetMs }.sortedBy { it.startMs }.joinToString(" ") { it.liveText }.trim()
+            if (added.isNotEmpty()) row = row.copy(editedText = previousRow!!.editedText!!.trimEnd() + "\n\n" + added)
+        }
+        if (previousRow != null && !refineAllowed && failure == null) {
+            row = row.copy(statusNote = "Recording continued. The second pass was skipped because the earlier audio is not saved.")
+        }
         row = row.copy(status = if (failure != null && segs.isEmpty()) SessionStatus.FAILED.name else if (failure != null) SessionStatus.INTERRUPTED.name else SessionStatus.COMPLETE.name)
         repo.upsertSession(row)
         val success = failure == null && ok && refinedOk
@@ -394,7 +434,7 @@ class SessionController(
         return sessionId
     }
 
-    private fun spoolFile(): File? = File(repo.audioDir, "$sessionId.pcm").takeIf { spool != null && it.exists() && PcmSpool.durationMs(it) >= AudioRetention.MIN_USEFUL_AUDIO_MS }
+    private fun spoolFile(): File? = File(repo.audioDir, spoolName ?: "$sessionId.pcm").takeIf { spool != null && it.exists() && PcmSpool.durationMs(it) >= AudioRetention.MIN_USEFUL_AUDIO_MS }
 
     private suspend fun refine(model: ModelInfo, audio: File?, live: List<Segment>): SegmentAligner.Result = withContext(Dispatchers.Default) {
         SessionBus.update { it.copy(phase = Phase.REFINING, status = null, progress = 0f, progressLabel = "Loading ${model.label}") }
@@ -447,7 +487,8 @@ class SessionController(
         runCatching { recognizer?.close() }; recognizer = null
         runCatching { collector?.close() }
         runCatching { spool?.close() }
-        runCatching { repo.delete(sessionId) }
+        val prev = previousRow
+        if (prev != null) runCatching { repo.upsertSession(prev) } else runCatching { repo.delete(sessionId) }
         worker.shutdown()
     }
 

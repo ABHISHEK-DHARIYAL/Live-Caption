@@ -68,6 +68,7 @@ class CaptureService : Service() {
     private fun start(i: Intent) {
         if (started) return
         started = true
+        val resumeId = i.getStringExtra(EXTRA_RESUME)
         val kind = CaptureKind.values().firstOrNull { it.name == i.getStringExtra(EXTRA_KIND) } ?: CaptureKind.MICROPHONE
         try {
             startForegroundTyped(kind)
@@ -96,7 +97,7 @@ class CaptureService : Service() {
             }
             val c = SessionController(this@CaptureService, app.repo, app.models, scope, ::updateNotification) { main.post { finishService() } }
             controller = c
-            val err = c.start(kind, proj, cfg)
+            val err = c.start(kind, proj, cfg, resumeId)
             if (err != null) return@launch fail(err)
             withContext(Dispatchers.Main) {
                 updateNotification("Listening...")
@@ -213,11 +214,13 @@ class CaptureService : Service() {
         const val EXTRA_KIND = "kind"
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
+        const val EXTRA_RESUME = "resume"
         private const val CHANNEL = "capture"
         private const val NOTIF_ID = 7
 
-        fun start(ctx: Context, kind: CaptureKind, code: Int = 0, data: Intent? = null) {
+        fun start(ctx: Context, kind: CaptureKind, code: Int = 0, data: Intent? = null, resumeId: String? = null) {
             val i = Intent(ctx, CaptureService::class.java).setAction(ACTION_START).putExtra(EXTRA_KIND, kind.name).putExtra(EXTRA_CODE, code)
+            if (resumeId != null) i.putExtra(EXTRA_RESUME, resumeId)
             if (data != null) i.putExtra(EXTRA_DATA, data)
             ctx.startForegroundService(i)
         }

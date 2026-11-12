@@ -19,6 +19,13 @@ class CaptionReconciler(private val lookBack: Int = 4, private val closeMs: Long
 
     val segments: List<Segment> get() = list.toList()
 
+    /** Loads segments saved earlier so a recording can continue after them. New segments get indices after the highest one. */
+    fun seed(existing: List<Segment>) {
+        list.clear()
+        list.addAll(existing.sortedWith(compareBy({ it.startMs }, { it.index })))
+        provisional = ""
+    }
+
     fun onPartial(text: String) { provisional = text.trim() }
 
     /** Returns the segment that now represents this text, or null when it was dropped as a duplicate / empty. */
@@ -45,7 +52,7 @@ class CaptionReconciler(private val lookBack: Int = 4, private val closeMs: Long
                 return merged
             }
         }
-        val seg = Segment(list.size, startMs, end, clean, null, language, rawText)
+        val seg = Segment((list.maxOfOrNull { it.index } ?: -1) + 1, startMs, end, clean, null, language, rawText)
         list.add(seg)
         return seg
     }

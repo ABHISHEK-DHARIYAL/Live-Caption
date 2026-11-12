@@ -14,6 +14,16 @@ class CaptionReconcilerTest {
         assertTrue(r.segments.isEmpty())
     }
 
+    @Test fun seededSegmentsAreKeptAndNewOnesContinueTheIndexes() {
+        val r = CaptionReconciler()
+        r.seed(listOf(Segment(0, 0, 2000, "First part."), Segment(5, 3000, 5000, "Second part.")))
+        val s = r.onFinal("Something new after the break.", 60_000, 62_000)
+        assertNotNull(s)
+        assertEquals(6, s!!.index)
+        assertEquals(3, r.segments.size)
+        assertEquals("First part.", r.segments[0].liveText)
+    }
+
     @Test fun finalAddsASegmentAndClearsTheProvisionalText() {
         val r = CaptionReconciler()
         r.onPartial("hello")

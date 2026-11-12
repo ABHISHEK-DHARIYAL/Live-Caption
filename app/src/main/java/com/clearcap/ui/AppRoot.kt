@@ -78,7 +78,7 @@ fun AppRoot() {
                 composable(Routes.SOURCE) { SourceScreen(onBack = { nav.popBackStack() }) }
                 composable(Routes.HISTORY) { HistoryScreen(onOpen = { nav.navigate(Routes.detail(it)) }) }
                 composable(Routes.DETAIL, arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
-                    DetailScreen(id = e.arguments?.getString("id").orEmpty(), onBack = { nav.popBackStack() }, onModels = { nav.navigate(Routes.MODELS) })
+                    DetailScreen(id = e.arguments?.getString("id").orEmpty(), onBack = { nav.popBackStack() }, onModels = { nav.navigate(Routes.MODELS) }, onRecording = { nav.goTab(Routes.HOME) })
                 }
                 composable(Routes.MODELS) { ModelsScreen(onBack = { nav.popBackStack() }) }
                 composable(Routes.VOCAB) { VocabularyScreen() }
