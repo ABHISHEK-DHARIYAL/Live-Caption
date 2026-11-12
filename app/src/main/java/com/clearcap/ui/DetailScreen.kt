@@ -56,7 +56,7 @@ fun DetailScreen(id: String, onBack: () -> Unit, onModels: () -> Unit, onRecordi
     val projection = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val data = r.data
         if (r.resultCode == Activity.RESULT_OK && data != null) { CaptureService.start(ctx, CaptureKind.SYSTEM, r.resultCode, data, resumeId = id); onRecording() }
-        else SessionBus.update { it.copy(error = "System-audio capture was not approved. Tap Continue recording and accept the prompt.") }
+        else SessionBus.update { it.copy(error = "System-audio capture was not approved. Tap Add more recording and accept the prompt.") }
     }
     fun launchContinue() {
         SessionBus.update { it.copy(error = null, status = null, savedId = null) }
@@ -157,7 +157,7 @@ fun DetailScreen(id: String, onBack: () -> Unit, onModels: () -> Unit, onRecordi
                 onClick = { continueRecording(kindFor(s.source)) },
                 enabled = !live.busy && s.status != "RECORDING" && s.status != "FINALIZING",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            ) { Text("Continue recording") }
+            ) { Text("+ Add more recording") }
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { draft = shownText; editing = true }) { Text("Edit") }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(shownText)); Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show() }) { Text("Copy") }
