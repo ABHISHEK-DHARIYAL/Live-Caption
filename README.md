@@ -36,7 +36,8 @@ See [docs/BUILD.md](docs/BUILD.md). Short version, with JDK 17 and Android Studi
 
 ```
 ./gradlew :core:test :app:testDebugUnitTest   # unit tests
-./gradlew :app:assembleDebug                  # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleStandardDebug          # app/build/outputs/apk/standard/debug/app-standard-debug.apk (no accessibility service)
+./gradlew :app:assembleFullDebug              # app/build/outputs/apk/full/debug/app-full-debug.apk (adds "Use words on screen")
 ```
 
 GitHub Actions (`.github/workflows/build.yml`) runs the same commands; failing tests fail the run.
@@ -51,7 +52,7 @@ GitHub Actions (`.github/workflows/build.yml`) runs the same commands; failing t
 
 **Floating bubble.** The caption bar's "–" button shrinks it to a round "CC" bubble. Drag the bubble anywhere; it settles against the nearest screen edge and remembers its place. A green dot means listening, amber means paused or falling behind. Tap it to bring the caption bar back. Needs "Display over other apps" only.
 
-**Words on screen (optional, off by default).** Settings > "Use words on screen" shows a consent screen, then sends you to Android's Accessibility settings to switch on "Clearcap screen words". While a recording runs, the service reads visible text of the foreground app, picks out unusual words (CamelCase, acronyms, mid-sentence capitalised names, words with digits), and keeps them in memory as a temporary vocabulary. The caption pipeline uses that list after your own vocabulary, so "cuber nettis" on a slide titled *Kubernetes* is captioned correctly. It skips password fields, text boxes you can type in, keyboards, system UI and this app, keeps nothing after the recording, and cannot click or type. See `PRIVACY.md`.
+**Words on screen (optional, off by default, "full" edition only).** Build it with `./gradlew :app:assembleFullDebug`; the plain `assembleStandardDebug` APK has no accessibility service at all and installs without Play Protect's "sensitive data" warning. Settings > "Use words on screen" shows a consent screen, then sends you to Android's Accessibility settings to switch on "Clearcap screen words". While a recording runs, the service reads visible text of the foreground app, picks out unusual words (CamelCase, acronyms, mid-sentence capitalised names, words with digits), and keeps them in memory as a temporary vocabulary. The caption pipeline uses that list after your own vocabulary, so "cuber nettis" on a slide titled *Kubernetes* is captioned correctly. It skips password fields, text boxes you can type in, keyboards, system UI and this app, keeps nothing after the recording, and cannot click or type. See `PRIVACY.md`.
 
 Notes: Google Play restricts accessibility services, so for publishing, justify the use (captions for deaf and hard-of-hearing users) and keep the in-app disclosure. On Android 13+, apps installed outside Play need "Allow restricted settings" in App info before the switch can be turned on (the Settings screen explains this). The word list only corrects what the recognizer already heard as similar-sounding words; it does not change the speech model.
 

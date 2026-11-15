@@ -20,7 +20,7 @@ When you choose System audio, Android shows its own screen-capture approval. Thi
 Floating captions
 The caption bar and the round CC bubble only draw over other apps. On their own they cannot read what is on other screens. You can drag the bubble anywhere; it rests against a screen edge.
 
-Words on screen (optional, off by default)
+Words on screen (optional, off by default, only in the "full" edition of the app)
 If you turn on "Use words on screen" and enable Clearcap in Android's Accessibility settings, then while a recording is running the app reads the visible text of the app you are using, only to learn how names and technical terms are spelled. It skips password fields, text boxes you can type in, keyboards and system screens. It keeps a short list of unusual words in memory for that recording only, and discards it when the recording ends. Screen text is never saved, logged or sent anywhere. The service cannot tap, type or change anything. Turn it off in Settings, or in Android's Accessibility settings, at any time.
 
 Permissions

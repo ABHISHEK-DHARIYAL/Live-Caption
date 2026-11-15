@@ -1,0 +1,4 @@
+<resources>
+    <string name="accessibility_service_label">Clearcap screen words</string>
+    <string name="accessibility_service_description">Optional. While a recording is running, Clearcap reads the visible text of the app you are using (for example slide titles, code or names) to spell technical words and names correctly in your captions. It skips password fields, text boxes you type in, keyboards and system screens. The words are kept in memory for the current recording only and are never saved or sent anywhere. It cannot tap, type or change anything.</string>
+</resources>

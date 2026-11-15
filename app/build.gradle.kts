@@ -19,6 +19,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Two editions of the same app (same id and signing key, so one updates the other):
+    //  standard: no accessibility service. Installs without Play Protect's "sensitive data" warning.
+    //  full:     adds the optional "Use words on screen" feature, which needs an accessibility service.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("standard") {
+            dimension = "edition"
+            buildConfigField("boolean", "SCREEN_WORDS", "false")
+        }
+        create("full") {
+            dimension = "edition"
+            versionNameSuffix = "-full"
+            buildConfigField("boolean", "SCREEN_WORDS", "true")
+        }
+    }
+
     // Fixed debug key so CI builds update each other instead of failing with "package conflicts".
     signingConfigs {
         getByName("debug") {

@@ -25,3 +25,6 @@ Allow "Display over other apps" (Settings > Show captions over other apps). The 
 ## "Use words on screen" does nothing
 All three must be true: the setting is on, "Clearcap screen words" is switched on in Android Accessibility settings, and a recording is running. If Android blocks the switch as "restricted", open App info, tap the three dots, choose "Allow restricted settings", then try again. Some phones stop accessibility services in aggressive battery modes; set Clearcap to unrestricted battery use.
 
+
+## Play Protect says "App blocked to protect your device"
+That warning is caused by the accessibility service, which only the "full" edition contains. Install the "standard" edition (`assembleStandardDebug`) to avoid it. For the full edition, tap More details > Install anyway.

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "full" edition only: adds the optional screen-word reader. The "standard" edition has no accessibility service at all,
+     which is what keeps Google Play Protect from flagging it as an app that "can request access to sensitive data". -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+
+        <!-- Optional screen-word reader. Off until the user enables it in Android Accessibility settings; inert unless
+             the "Use words on screen" setting is on and a recording is running. Read-only (see accessibility_service_config.xml). -->
+        <service
+            android:name=".session.ContextAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+    </application>
+</manifest>

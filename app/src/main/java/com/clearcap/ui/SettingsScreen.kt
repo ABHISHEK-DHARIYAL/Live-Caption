@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import com.clearcap.BuildConfig
 import com.clearcap.app
 import com.clearcap.session.AudioMode
 import com.clearcap.session.ScreenContext
@@ -66,7 +67,7 @@ fun SettingsScreen(nav: NavController) {
                 }) { Text("Allow display over other apps") }
             }
 
-            Panel {
+            if (BuildConfig.SCREEN_WORDS) Panel {
                 Text("Words on screen (better names and terms)", style = MaterialTheme.typography.titleMedium)
                 SwitchRow(
                     "Use words on screen",

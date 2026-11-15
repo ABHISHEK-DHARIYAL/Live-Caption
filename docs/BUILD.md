@@ -13,10 +13,11 @@
 ```
 ./gradlew :core:test                 # pure Kotlin tests (152)
 ./gradlew :app:testDebugUnitTest     # app JVM tests (none yet)
-./gradlew :app:assembleDebug         # APK
+./gradlew :app:assembleStandardDebug   # APK without accessibility service (no Play Protect warning)
+./gradlew :app:assembleFullDebug        # APK with the optional "Use words on screen" feature
 ./gradlew :app:connectedDebugAndroidTest   # Room tests; needs a device or arm emulator
 ```
-Install: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+Install: `adb install -r app/build/outputs/apk/standard/debug/app-standard-debug.apk`.
 
 The debug build is signed with `app/debug.keystore` (public key, debug only) so successive CI builds update each other.
 Never ship a release with it; create your own release keystore.
