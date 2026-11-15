@@ -5,6 +5,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      edition:
+        description: "Which app to build: standard (no accessibility service) or full (adds Use words on screen)"
+        type: choice
+        options: [standard, full]
+        default: standard
 
 jobs:
   build:
@@ -26,8 +32,12 @@ jobs:
       - name: Unit tests (core module and app module)
         run: ./gradlew :core:test :app:testStandardDebugUnitTest --stacktrace
 
+      # One APK per run. Pushes build "standard"; a manual run (Actions > Run workflow) can pick "full".
       - name: Build debug APK
-        run: ./gradlew :app:assembleStandardDebug :app:assembleFullDebug --stacktrace
+        env:
+          EDITION: ${{ github.event.inputs.edition || 'standard' }}
+        run: |
+          if [ "$EDITION" = "full" ]; then ./gradlew :app:assembleFullDebug --stacktrace; else ./gradlew :app:assembleStandardDebug --stacktrace; fi
 
       - name: Upload test reports
         if: always()
@@ -36,7 +46,7 @@ jobs:
           name: test-reports
           path: |
             core/build/reports/tests/test
-            app/build/reports/tests/testDebugUnitTest
+            app/build/reports/tests/testStandardDebugUnitTest
           if-no-files-found: ignore
 
       - name: Upload debug APK
