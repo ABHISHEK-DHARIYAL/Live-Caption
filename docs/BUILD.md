@@ -12,10 +12,10 @@
 ## Command line
 ```
 ./gradlew :core:test                 # pure Kotlin tests (152)
-./gradlew :app:testDebugUnitTest     # app JVM tests (none yet)
+./gradlew :app:testStandardDebugUnitTest     # app JVM tests (none yet)
 ./gradlew :app:assembleStandardDebug   # APK without accessibility service (no Play Protect warning)
 ./gradlew :app:assembleFullDebug        # APK with the optional "Use words on screen" feature
-./gradlew :app:connectedDebugAndroidTest   # Room tests; needs a device or arm emulator
+./gradlew :app:connectedStandardDebugAndroidTest   # Room tests; needs a device or arm emulator
 ```
 Install: `adb install -r app/build/outputs/apk/standard/debug/app-standard-debug.apk`.
 

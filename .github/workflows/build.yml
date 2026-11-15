@@ -24,7 +24,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Unit tests (core module and app module)
-        run: ./gradlew :core:test :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :core:test :app:testStandardDebugUnitTest --stacktrace
 
       - name: Build debug APK
         run: ./gradlew :app:assembleStandardDebug :app:assembleFullDebug --stacktrace

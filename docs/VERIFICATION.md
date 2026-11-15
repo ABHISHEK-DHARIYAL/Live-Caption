@@ -20,7 +20,7 @@ The type check found three more (nullability, a cross-module smart cast, annotat
 - `:core:test` under real Gradle/JUnit: **all tests listed as PASSED, none failed**. (Previously only run through my shim.)
 - `:app:kspDebugKotlin` (Room code generation) completed. `:app:checkDebugAarMetadata`, resource merge and manifest merge passed.
 - `:app:compileDebugKotlin` **failed on one error**: `ACTION_IGNORE_BATTERY_OPTIMIZATIONS_SETTINGS` in `SettingsScreen.kt` (wrong constant name; the real one is `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`). Fixed, and every other platform constant in the UI files was then checked against `android.jar` (19 checked, none unknown).
-- The log showed only that one compile error, which suggests the rest of the Compose code compiled, but the build stopped there, so `:app:testDebugUnitTest` and `:app:assembleDebug` had **not** run yet.
+- The log showed only that one compile error, which suggests the rest of the Compose code compiled, but the build stopped there, so `:app:testStandardDebugUnitTest` and `:app:assembleDebug` had **not** run yet.
 
 ## NOT run (needs your build and device)
 - A successful `:app:assembleDebug`. **No APK has been built yet** (the first CI run stopped at the error above, now fixed).

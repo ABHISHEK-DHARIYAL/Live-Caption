@@ -35,7 +35,7 @@ saves transcripts to a local database, and lets you edit, search, export and res
 See [docs/BUILD.md](docs/BUILD.md). Short version, with JDK 17 and Android Studio (Ladybug or newer):
 
 ```
-./gradlew :core:test :app:testDebugUnitTest   # unit tests
+./gradlew :core:test :app:testStandardDebugUnitTest   # unit tests
 ./gradlew :app:assembleStandardDebug          # app/build/outputs/apk/standard/debug/app-standard-debug.apk (no accessibility service)
 ./gradlew :app:assembleFullDebug              # app/build/outputs/apk/full/debug/app-full-debug.apk (adds "Use words on screen")
 ```
