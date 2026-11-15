@@ -150,9 +150,9 @@ class TranscriptRepository(private val ctx: Context, private val db: AppDatabase
     }
 
     /** The text pipeline for the current vocabulary. Built when a recording starts, so a session is consistent. */
-    suspend fun pipeline(): SegmentTextPipeline {
+    suspend fun pipeline(screenTerms: com.clearcap.text.ContextVocabulary? = null): SegmentTextPipeline {
         val list = vocabDao.list().map { it.toEntry() }
-        return SegmentTextPipeline(VocabularyCorrector(list.map { it.term }), VocabularyRules(list))
+        return SegmentTextPipeline(VocabularyCorrector(list.map { it.term }), VocabularyRules(list), screenTerms)
     }
 
     // ---- earlier JSON transcripts and dictionary ----

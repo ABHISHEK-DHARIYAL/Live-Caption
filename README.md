@@ -47,6 +47,14 @@ GitHub Actions (`.github/workflows/build.yml`) runs the same commands; failing t
 2. Pick a source on **Home**, tap the button, accept the prompts.
 3. Optional: Settings > Audio storage if you want crash recovery and re-checking.
 
+## Floating bubble and words on screen
+
+**Floating bubble.** The caption bar's "–" button shrinks it to a round "CC" bubble. Drag the bubble anywhere; it settles against the nearest screen edge and remembers its place. A green dot means listening, amber means paused or falling behind. Tap it to bring the caption bar back. Needs "Display over other apps" only.
+
+**Words on screen (optional, off by default).** Settings > "Use words on screen" shows a consent screen, then sends you to Android's Accessibility settings to switch on "Clearcap screen words". While a recording runs, the service reads visible text of the foreground app, picks out unusual words (CamelCase, acronyms, mid-sentence capitalised names, words with digits), and keeps them in memory as a temporary vocabulary. The caption pipeline uses that list after your own vocabulary, so "cuber nettis" on a slide titled *Kubernetes* is captioned correctly. It skips password fields, text boxes you can type in, keyboards, system UI and this app, keeps nothing after the recording, and cannot click or type. See `PRIVACY.md`.
+
+Notes: Google Play restricts accessibility services, so for publishing, justify the use (captions for deaf and hard-of-hearing users) and keep the in-app disclosure. On Android 13+, apps installed outside Play need "Allow restricted settings" in App info before the switch can be turned on (the Settings screen explains this). The word list only corrects what the recognizer already heard as similar-sounding words; it does not change the speech model.
+
 ## Layout
 
 ```

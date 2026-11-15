@@ -18,3 +18,10 @@
 | Model "not installed correctly" | A file is missing or the wrong size | Models > Verify, then Delete and Download again |
 | Build: "SDK location not found" | Android SDK not configured | Open in Android Studio, or set `sdk.dir` in `local.properties` |
 | Build: Room/KSP errors | First build after changing versions | `./gradlew clean :app:assembleDebug`, then send the first error |
+
+## The floating bubble is not showing
+Allow "Display over other apps" (Settings > Show captions over other apps). The bubble appears when you tap "–" on the caption bar. If it is off-screen after a rotation, start a new recording; it is clamped back onto the screen.
+
+## "Use words on screen" does nothing
+All three must be true: the setting is on, "Clearcap screen words" is switched on in Android Accessibility settings, and a recording is running. If Android blocks the switch as "restricted", open App info, tap the three dots, choose "Allow restricted settings", then try again. Some phones stop accessibility services in aggressive battery modes; set Clearcap to unrestricted battery use.
+

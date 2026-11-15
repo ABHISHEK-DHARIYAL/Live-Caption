@@ -82,6 +82,7 @@ class CaptureService : Service() {
 
         scope.launch {
             val cfg = app.settings.current()
+            ScreenContext.begin(cfg.screenContext) // on only if the user opted in; the words are kept in memory for this recording only
             var proj: MediaProjection? = null
             if (kind == CaptureKind.SYSTEM) {
                 if (data == null) return@launch fail("System-audio capture was not approved. Tap Start and accept the prompt.")
@@ -101,7 +102,7 @@ class CaptureService : Service() {
             if (err != null) return@launch fail(err)
             withContext(Dispatchers.Main) {
                 updateNotification("Listening...")
-                if (cfg.overlay) showOverlay(cfg.overlayTextSp, cfg.overlayBottomPx)
+                if (cfg.overlay) showOverlay(cfg)
             }
         }
     }
@@ -111,12 +112,14 @@ class CaptureService : Service() {
         if (c == null) { finishService(); return }
         if (stopRequested) { c.skipRefinement(); return } // a second tap skips the second pass
         stopRequested = true
+        ScreenContext.stopReading()
         hideOverlay()
         updateNotification("Saving...")
         scope.launch { runCatching { c.stop() } }
     }
 
     private fun finishService() {
+        ScreenContext.end()
         hideOverlay()
         runCatching { projection?.stop() }
         projection = null
@@ -132,15 +135,17 @@ class CaptureService : Service() {
 
     // ---- caption bar ----
 
-    private fun showOverlay(textSp: Int, bottomPx: Int) {
+    private fun showOverlay(cfg: com.clearcap.data.AppSettings) {
         if (!Settings.canDrawOverlays(this)) {
             SessionBus.update { it.copy(status = "Allow \"Display over other apps\" in Settings to see the floating captions.") }
             return
         }
         val o = CaptionOverlay(
-            this, textSp, bottomPx,
-            onMoved = { y -> app.settings.update { it.copy(overlayBottomPx = y) } },
-            onClose = { hideOverlay() }, // closes the floating bar only; recording/transcription keeps running
+            this, cfg.overlayTextSp, cfg.overlayBottomPx, cfg.bubbleOnLeft, cfg.bubbleYPx, cfg.overlayMinimized,
+            onBarMoved = { y -> app.settings.update { it.copy(overlayBottomPx = y) } },
+            onBubbleMoved = { left, y -> app.settings.update { it.copy(bubbleOnLeft = left, bubbleYPx = y) } },
+            onMinimizedChanged = { m -> app.settings.update { it.copy(overlayMinimized = m) } },
+            onClose = { hideOverlay() }, // closes the floating bar and bubble only; recording/transcription keeps running
         ).also { it.show() }
         overlay = o
         overlayJob = SessionBus.state.onEach { st ->
@@ -150,6 +155,11 @@ class CaptureService : Service() {
                 else -> null
             }
             o.set(st.partial.ifBlank { st.lines.lastOrNull().orEmpty() }, warn)
+            o.setStatus(when {
+                st.phase == Phase.PAUSED -> OverlayStatus.PAUSED
+                st.behindMs > 5_000 -> OverlayStatus.BEHIND
+                else -> OverlayStatus.LISTENING
+            })
         }.launchIn(ui)
     }
 
@@ -196,6 +206,7 @@ class CaptureService : Service() {
     }
 
     override fun onDestroy() {
+        ScreenContext.end()
         hideOverlay()
         // Android is ending the service without a normal Stop: keep what was captured and mark the session interrupted.
         controller?.let { c -> runBlocking(Dispatchers.IO) { withTimeoutOrNull(2_500) { c.abort() } } }

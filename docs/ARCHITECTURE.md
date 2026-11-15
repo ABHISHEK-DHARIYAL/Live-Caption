@@ -58,6 +58,9 @@ Start-up and pre-recording checks re-verify file presence and sizes. Downloads r
 - Recognised text is data: it is never executed, used as a path, or interpolated into queries (Room uses bound parameters; search escapes LIKE wildcards).
 - Diagnostics contain counters and codes only.
 
+## Screen context (optional)
+`ContextAccessibilityService` (app) walks the foreground window on a background thread (at most every 2.5 s, 700 nodes) while `ScreenContext.active` is true, and hands the text to `ScreenTerms.extract` (core, unit-tested). Terms go into `ContextVocabulary` (in-memory, 150 newest). `SegmentTextPipeline` applies it after the user's vocabulary. `ScreenContext.stopReading()` runs when a recording is stopped and `end()` clears the list when the service finishes.
+
 ## Rejected alternatives
 faster-whisper/CTranslate2 (Python, no Android build); whisper.cpp (would need an unverified NDK/JNI build; revisit only if sherpa Whisper fails Hindi/Hinglish);
 React Native/whisper.rn (not native Kotlin); mixing mic and system audio (no verified echo handling); cloud notes (violates "never upload").

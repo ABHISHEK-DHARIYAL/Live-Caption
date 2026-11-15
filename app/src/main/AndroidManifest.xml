@@ -41,6 +41,21 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection|microphone" />
 
+        <!-- Optional screen-word reader. Off until the user enables it in Android Accessibility settings; inert unless
+             the "Use words on screen" setting is on and a recording is running. Read-only (see accessibility_service_config.xml). -->
+        <service
+            android:name=".session.ContextAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- WorkManager's own foreground service, declared with a type so Android 14+ accepts it. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

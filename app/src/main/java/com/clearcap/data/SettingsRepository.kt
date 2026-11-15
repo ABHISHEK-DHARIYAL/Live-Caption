@@ -30,6 +30,10 @@ data class AppSettings(
     val overlay: Boolean = true,
     val overlayTextSp: Int = 18,
     val overlayBottomPx: Int = 180,
+    val overlayMinimized: Boolean = false,      // caption bar collapsed into the floating bubble
+    val bubbleOnLeft: Boolean = false,          // which screen edge the bubble rests on
+    val bubbleYPx: Int = -1,                    // -1 = not placed yet (starts about a third of the way down)
+    val screenContext: Boolean = false,         // use words visible on screen to fix names and technical terms. OFF until the user opts in
     val audioMode: AudioMode = AudioMode.OFF,   // audio is never stored unless the user turns this on
     val transcriptRetentionDays: Int = 0,       // 0 = keep until deleted
     val wifiOnlyDownloads: Boolean = true,
@@ -47,6 +51,10 @@ class SettingsRepository(private val ctx: Context, private val scope: CoroutineS
         val overlay = booleanPreferencesKey("overlay")
         val overlaySp = intPreferencesKey("overlay_sp")
         val overlayY = intPreferencesKey("overlay_y")
+        val overlayMin = booleanPreferencesKey("overlay_min")
+        val bubbleLeft = booleanPreferencesKey("bubble_left")
+        val bubbleY = intPreferencesKey("bubble_y")
+        val screenCtx = booleanPreferencesKey("screen_context")
         val audio = stringPreferencesKey("audio_mode")
         val retention = intPreferencesKey("retention_days")
         val wifi = booleanPreferencesKey("wifi_only")
@@ -77,6 +85,10 @@ class SettingsRepository(private val ctx: Context, private val scope: CoroutineS
             overlay = p[K.overlay] ?: d.overlay,
             overlayTextSp = (p[K.overlaySp] ?: d.overlayTextSp).coerceIn(12, 34),
             overlayBottomPx = (p[K.overlayY] ?: d.overlayBottomPx).coerceAtLeast(0),
+            overlayMinimized = p[K.overlayMin] ?: d.overlayMinimized,
+            bubbleOnLeft = p[K.bubbleLeft] ?: d.bubbleOnLeft,
+            bubbleYPx = (p[K.bubbleY] ?: d.bubbleYPx).coerceAtLeast(-1),
+            screenContext = p[K.screenCtx] ?: d.screenContext,
             audioMode = AudioMode.values().firstOrNull { it.name == p[K.audio] } ?: d.audioMode,
             transcriptRetentionDays = (p[K.retention] ?: d.transcriptRetentionDays).coerceAtLeast(0),
             wifiOnlyDownloads = p[K.wifi] ?: d.wifiOnlyDownloads,
@@ -93,6 +105,10 @@ class SettingsRepository(private val ctx: Context, private val scope: CoroutineS
         p[K.overlay] = s.overlay
         p[K.overlaySp] = s.overlayTextSp
         p[K.overlayY] = s.overlayBottomPx
+        p[K.overlayMin] = s.overlayMinimized
+        p[K.bubbleLeft] = s.bubbleOnLeft
+        p[K.bubbleY] = s.bubbleYPx
+        p[K.screenCtx] = s.screenContext
         p[K.audio] = s.audioMode.name
         p[K.retention] = s.transcriptRetentionDays
         p[K.wifi] = s.wifiOnlyDownloads

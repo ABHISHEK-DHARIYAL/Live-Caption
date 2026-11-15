@@ -133,7 +133,8 @@ class SessionController(
         val fit = DeviceProfile.fit(live, device)
         if (fit.level == com.clearcap.models.FitLevel.BLOCK) return fit.message
 
-        pipeline = repo.pipeline()
+        // Words read from the screen (only when the user opted in) join the user's own vocabulary for this recording.
+        pipeline = repo.pipeline(if (cfg.screenContext) ScreenContext.vocab else null)
         val plan = refinementPlan(audioAvailable = true)
         val threads = DeviceProfile.threads(device.cores)
 
